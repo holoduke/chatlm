@@ -877,6 +877,9 @@ const camCanvas = document.getElementById("cam-canvas");
 const camLabels = document.getElementById("cam-labels");
 let trackTimer = null;
 let trackBusy = false;
+// User-intent flag: when true, AUTO scan will not auto-restart TRACK. Cleared
+// when the user explicitly clicks TRACK on again.
+let trackUserDisabled = false;
 let masksOn = localStorage.getItem("gemma4.masks") === "1";
 masksToggle.setAttribute("aria-pressed", masksOn ? "true" : "false");
 masksToggle.addEventListener("click", () => {
@@ -1237,10 +1240,11 @@ function stopTrack() {
 trackToggle.addEventListener("click", () => {
   if (trackTimer || document.body.classList.contains("track-armed")) {
     stopTrack();
+    trackUserDisabled = true;  // keep TRACK off even if AUTO keeps producing chips
     return;
   }
-  // Arm the section so the user can edit the track input / chips before the
-  // loop actually starts. If there's already text, start immediately.
+  // User explicitly turning TRACK on → clear the disabled intent.
+  trackUserDisabled = false;
   document.body.classList.add("track-armed");
   trackToggle.setAttribute("aria-pressed", "true");
   if (trackInput.value.trim() && camStream) startTrack();
@@ -1329,7 +1333,8 @@ function renderChips(objects) {
   autoTrackPrimed = true;
 
   syncInputFromSelection();
-  if (selected.size && !trackTimer && camStream) startTrack();
+  // Only auto-start TRACK if the user hasn't explicitly turned it off.
+  if (selected.size && !trackTimer && camStream && !trackUserDisabled) startTrack();
   if (!selected.size && trackTimer) stopTrack();
 
   if (!objects.length && !customTags.size) {
