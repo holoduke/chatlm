@@ -205,40 +205,60 @@ def ocr(image_b64: str) -> dict:
 
 # ---------------- FACE MESH (MediaPipe) ----------------
 
+_FACE_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/1/face_landmarker.task"
+)
+_FACE_MODEL_PATH = "face_landmarker.task"
+
+
 def _ensure_face_mesh():
     global _face_mesh
     if _face_mesh is not None:
         return _face_mesh
-    import mediapipe as mp
-    log.info("loading mediapipe face mesh...")
-    _face_mesh = mp.solutions.face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=5,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
+    import os
+    import urllib.request
+    from mediapipe.tasks import python
+    from mediapipe.tasks.python import vision as mp_vision
+
+    if not os.path.exists(_FACE_MODEL_PATH):
+        log.info(f"downloading face_landmarker.task from {_FACE_MODEL_URL}")
+        urllib.request.urlretrieve(_FACE_MODEL_URL, _FACE_MODEL_PATH)
+
+    log.info("loading mediapipe FaceLandmarker...")
+    base_opts = python.BaseOptions(model_asset_path=_FACE_MODEL_PATH)
+    opts = mp_vision.FaceLandmarkerOptions(
+        base_options=base_opts,
+        output_face_blendshapes=False,
+        output_facial_transformation_matrixes=False,
+        num_faces=5,
+        running_mode=mp_vision.RunningMode.IMAGE,
     )
+    _face_mesh = mp_vision.FaceLandmarker.create_from_options(opts)
     return _face_mesh
 
 
 def face_mesh(image_b64: str) -> dict:
-    mesh = _ensure_face_mesh()
+    import mediapipe as mp
+
+    detector = _ensure_face_mesh()
     img_bytes = base64.b64decode(image_b64)
-    arr = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
-    h, w = arr.shape[:2]
+    pil = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    w, h = pil.size
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(pil))
 
     with _lock:
         t0 = time.perf_counter()
-        result = mesh.process(arr)
+        result = detector.detect(mp_image)
         dur = (time.perf_counter() - t0) * 1000
 
     faces = []
-    if result.multi_face_landmarks:
-        for fl in result.multi_face_landmarks:
-            pts = [[lm.x * w, lm.y * h] for lm in fl.landmark]
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            faces.append({
-                "landmarks": [[round(x, 1), round(y, 1)] for x, y in pts],
-                "box": [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
-            })
+    for fl in result.face_landmarks:
+        pts = [[lm.x * w, lm.y * h] for lm in fl]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        faces.append({
+            "landmarks": [[round(x, 1), round(y, 1)] for x, y in pts],
+            "box": [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
+        })
     return {"w": w, "h": h, "faces": faces, "latency_ms": int(dur)}
