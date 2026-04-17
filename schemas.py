@@ -106,6 +106,24 @@ class RmbgResponse(BaseModel):
     latency_ms: int
 
 
+class ImageOnlyRequest(BaseModel):
+    image: str = Field(..., description="Base64 JPEG/PNG")
+
+
+class OcrResponse(BaseModel):
+    w: int
+    h: int
+    items: list[dict]
+    latency_ms: int
+
+
+class FaceMeshResponse(BaseModel):
+    w: int
+    h: int
+    faces: list[dict]
+    latency_ms: int
+
+
 class ToolExecRequest(BaseModel):
     command: str = Field(..., min_length=1, max_length=4000)
     cwd: str | None = Field(None, max_length=500)

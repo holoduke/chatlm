@@ -127,6 +127,8 @@ def estimate_depth(image_b64: str, colormap: str = "inferno") -> dict:
 # ---------------- BACKGROUND REMOVAL (rembg / U2Net) ----------------
 
 _rmbg_session: Any = None
+_ocr_reader: Any = None
+_face_mesh: Any = None
 
 
 def _ensure_rmbg():
@@ -162,3 +164,81 @@ def remove_bg(image_b64: str, return_mask: bool = False) -> dict:
         "height": img.size[1],
         "latency_ms": int(dur),
     }
+
+
+# ---------------- OCR (EasyOCR) ----------------
+
+def _ensure_ocr(lang: tuple[str, ...] = ("en",)):
+    global _ocr_reader
+    if _ocr_reader is not None:
+        return _ocr_reader
+    import easyocr
+    log.info(f"loading easyocr langs={lang}...")
+    _ocr_reader = easyocr.Reader(list(lang), gpu=False, verbose=False)
+    return _ocr_reader
+
+
+def ocr(image_b64: str) -> dict:
+    reader = _ensure_ocr()
+    img_bytes = base64.b64decode(image_b64)
+    arr = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+    h, w = arr.shape[:2]
+
+    with _lock:
+        t0 = time.perf_counter()
+        raw = reader.readtext(arr)
+        dur = (time.perf_counter() - t0) * 1000
+
+    items = []
+    for entry in raw:
+        box_pts, text, score = entry
+        xs = [p[0] for p in box_pts]
+        ys = [p[1] for p in box_pts]
+        items.append({
+            "text": text,
+            "polygon": [[int(x), int(y)] for x, y in box_pts],
+            "box": [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
+            "confidence": round(float(score), 3),
+        })
+    return {"w": w, "h": h, "items": items, "latency_ms": int(dur)}
+
+
+# ---------------- FACE MESH (MediaPipe) ----------------
+
+def _ensure_face_mesh():
+    global _face_mesh
+    if _face_mesh is not None:
+        return _face_mesh
+    import mediapipe as mp
+    log.info("loading mediapipe face mesh...")
+    _face_mesh = mp.solutions.face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=5,
+        refine_landmarks=True,
+        min_detection_confidence=0.5,
+    )
+    return _face_mesh
+
+
+def face_mesh(image_b64: str) -> dict:
+    mesh = _ensure_face_mesh()
+    img_bytes = base64.b64decode(image_b64)
+    arr = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+    h, w = arr.shape[:2]
+
+    with _lock:
+        t0 = time.perf_counter()
+        result = mesh.process(arr)
+        dur = (time.perf_counter() - t0) * 1000
+
+    faces = []
+    if result.multi_face_landmarks:
+        for fl in result.multi_face_landmarks:
+            pts = [[lm.x * w, lm.y * h] for lm in fl.landmark]
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            faces.append({
+                "landmarks": [[round(x, 1), round(y, 1)] for x, y in pts],
+                "box": [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
+            })
+    return {"w": w, "h": h, "faces": faces, "latency_ms": int(dur)}

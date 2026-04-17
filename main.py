@@ -28,13 +28,16 @@ from schemas import (
     DepthResponse,
     DetectRequest,
     DetectResponse,
+    FaceMeshResponse,
     GenerateRequest,
     GenerateResponse,
+    ImageOnlyRequest,
     Img2ImgRequest,
     Img2ImgResponse,
     InpaintRequest,
     InpaintResponse,
     Message,
+    OcrResponse,
     PoseRequest,
     PoseResponse,
     RmbgRequest,
@@ -534,6 +537,30 @@ async def depth_endpoint(request: DepthRequest) -> DepthResponse:
         raise HTTPException(status_code=500, detail=str(err)) from err
     log.info(f"/depth -> {res['latency_ms']}ms {res['width']}x{res['height']}")
     return DepthResponse(**res)
+
+
+@app.post("/ocr", response_model=OcrResponse)
+async def ocr_endpoint(request: ImageOnlyRequest) -> OcrResponse:
+    import vision
+    try:
+        res = await asyncio.to_thread(vision.ocr, request.image)
+    except Exception as err:
+        log.error(f"/ocr !! {err}")
+        raise HTTPException(status_code=500, detail=str(err)) from err
+    log.info(f"/ocr -> {res['latency_ms']}ms items={len(res['items'])}")
+    return OcrResponse(**res)
+
+
+@app.post("/face", response_model=FaceMeshResponse)
+async def face_endpoint(request: ImageOnlyRequest) -> FaceMeshResponse:
+    import vision
+    try:
+        res = await asyncio.to_thread(vision.face_mesh, request.image)
+    except Exception as err:
+        log.error(f"/face !! {err}")
+        raise HTTPException(status_code=500, detail=str(err)) from err
+    log.info(f"/face -> {res['latency_ms']}ms faces={len(res['faces'])}")
+    return FaceMeshResponse(**res)
 
 
 @app.post("/remove-bg", response_model=RmbgResponse)

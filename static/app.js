@@ -1356,6 +1356,59 @@ document.getElementById("btn-cutout").addEventListener("click", () =>
   runOneShot("/remove-bg", "CUTOUT", { return_mask: false }, (data) =>
     _feedCard("// CUTOUT", "var(--green)", data.image)));
 
+document.getElementById("btn-ocr").addEventListener("click", () =>
+  runOneShot("/ocr", "OCR", {}, (data, origB64) => {
+    const c = document.createElement("canvas");
+    c.width = data.w; c.height = data.h;
+    const ctx = c.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, data.w, data.h);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#00f0ff";
+      ctx.fillStyle = "rgba(5,6,11,0.7)";
+      ctx.font = "14px 'Share Tech Mono', monospace";
+      for (const it of data.items) {
+        const [x1, y1, x2, y2] = it.box;
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        const label = `${it.text} ${(it.confidence * 100).toFixed(0)}%`;
+        const w = ctx.measureText(label).width + 6;
+        ctx.fillRect(x1, Math.max(y1 - 18, 0), w, 18);
+        ctx.fillStyle = "#00f0ff";
+        ctx.fillText(label, x1 + 3, Math.max(y1 - 5, 12));
+        ctx.fillStyle = "rgba(5,6,11,0.7)";
+      }
+      const out = c.toDataURL("image/jpeg", 0.88).split(",")[1];
+      _feedCard(`// OCR · ${data.items.length} lines`, "var(--cyan)", out);
+    };
+    img.src = `data:image/jpeg;base64,${origB64}`;
+  }));
+
+document.getElementById("btn-face").addEventListener("click", () =>
+  runOneShot("/face", "FACE", {}, (data, origB64) => {
+    const c = document.createElement("canvas");
+    c.width = data.w; c.height = data.h;
+    const ctx = c.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, data.w, data.h);
+      ctx.fillStyle = "#39ff14";
+      ctx.shadowColor = "#39ff14";
+      ctx.shadowBlur = 4;
+      for (const f of data.faces) {
+        for (const [x, y] of f.landmarks) {
+          ctx.beginPath();
+          ctx.arc(x, y, 1.2, 0, 2*Math.PI);
+          ctx.fill();
+        }
+      }
+      ctx.shadowBlur = 0;
+      const out = c.toDataURL("image/jpeg", 0.88).split(",")[1];
+      _feedCard(`// FACE · ${data.faces.length}`, "var(--green)", out);
+    };
+    img.src = `data:image/jpeg;base64,${origB64}`;
+  }));
+
 document.getElementById("btn-pose").addEventListener("click", () =>
   runOneShot("/pose", "POSE", {}, (data, origB64) => {
     // draw keypoints on a copy of the frame
