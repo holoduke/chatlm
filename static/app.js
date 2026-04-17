@@ -1097,6 +1097,7 @@ async function trackOnce() {
   if (trackBusy || !camStream) return;
   const prompt = trackInput.value.trim();
   if (!prompt) return;
+  const myToken = trackToken;
   trackBusy = true;
   try {
     const b = await captureFrame(FRAME_SIZE, 0.7);
@@ -1117,6 +1118,7 @@ async function trackOnce() {
       throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
     }
     const data = await res.json();
+    if (myToken !== trackToken) return;  // TRACK stopped mid-flight; discard.
     drawDetections(data);
     const t = data.timings_ms || {};
     if (t.detect != null) setStat("s-yolo", `${Math.round(t.detect)} ms`);
@@ -1155,8 +1157,12 @@ function stopTrack() {
   if (trackTimer) clearTimeout(trackTimer);
   trackTimer = null;
   trackToggle.setAttribute("aria-pressed", "false");
+  // Drop the detection overlay (boxes/polygons/labels) and also forget the
+  // per-pipeline latency so the telemetry tiles don't show stale numbers.
   clearOverlayState("detect");
   drawOverlay();
+  setStat("s-yolo", "--");
+  setStat("s-sam", "--");
 }
 
 trackToggle.addEventListener("click", () => {
@@ -1632,6 +1638,7 @@ const faceBtnEl = document.getElementById("btn-face");
 
 async function poseTick() {
   if (poseBusy || !camStream) return;
+  const myToken = poseToken;
   poseBusy = true;
   try {
     const b = await captureFrame(FRAME_SIZE, 0.75);
@@ -1643,6 +1650,7 @@ async function poseTick() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (myToken !== poseToken) return;
     overlay.pose = data;
     drawOverlay();
     if (data.latency_ms != null) setStat("s-op-pose", `${data.latency_ms} ms`);
@@ -1671,10 +1679,12 @@ function stopPose() {
   poseBtnEl.setAttribute("aria-pressed", "false");
   clearOverlayState("pose");
   drawOverlay();
+  setStat("s-op-pose", "--");
 }
 
 async function faceTick() {
   if (faceBusy || !camStream) return;
+  const myToken = faceToken;
   faceBusy = true;
   try {
     const b = await captureFrame(FRAME_SIZE, 0.75);
@@ -1686,6 +1696,7 @@ async function faceTick() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (myToken !== faceToken) return;
     overlay.face = data;
     drawOverlay();
     if (data.latency_ms != null) setStat("s-op-face", `${data.latency_ms} ms`);
@@ -1714,6 +1725,7 @@ function stopFace() {
   faceBtnEl.setAttribute("aria-pressed", "false");
   clearOverlayState("face");
   drawOverlay();
+  setStat("s-op-face", "--");
 }
 
 poseBtnEl.addEventListener("click", () => (poseTimer ? stopPose() : startPose()));
@@ -1725,6 +1737,7 @@ const peopleBtnEl = document.getElementById("btn-people");
 
 async function peopleTick() {
   if (peopleBusy || !camStream) return;
+  const myToken = peopleToken;
   peopleBusy = true;
   try {
     const b = await captureFrame(FRAME_SIZE, 0.75);
@@ -1736,6 +1749,7 @@ async function peopleTick() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (myToken !== peopleToken) return;
     overlay.people = data;
     drawOverlay();
     if (data.latency_ms != null) setStat("s-op-people", `${data.latency_ms} ms`);
@@ -1764,6 +1778,7 @@ function stopPeople() {
   peopleBtnEl.setAttribute("aria-pressed", "false");
   clearOverlayState("people");
   drawOverlay();
+  setStat("s-op-people", "--");
 }
 peopleBtnEl.addEventListener("click", () => (peopleTimer ? stopPeople() : startPeople()));
 
