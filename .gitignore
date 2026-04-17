@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+
+# Model weights — downloaded on first use by ultralytics / HuggingFace
+*.pt
+*.bin
+*.safetensors
+*.onnx
+
+# Claude Code and local tool scratch
+.claude/
+.mcp-backups/
+
+# Test / log artefacts
+/tmp/
+*.log

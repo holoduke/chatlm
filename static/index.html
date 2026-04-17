@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>EMMA//4 — NEURAL LINK</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="scanlines" aria-hidden="true"></div>
+    <div class="noise" aria-hidden="true"></div>
+
+    <main class="frame">
+      <header class="bar">
+        <div class="logo">
+          <span class="logo-bracket">[</span>
+          <span class="logo-text" data-text="EMMA//4">EMMA//4</span>
+          <span class="logo-bracket">]</span>
+        </div>
+        <div class="mode-switch" role="tablist" aria-label="mode">
+          <button type="button" class="mode-btn" data-mode="chat" aria-pressed="true">CHAT</button>
+          <button type="button" class="mode-btn" data-mode="video" aria-pressed="false">VIDEO</button>
+        </div>
+        <div class="model-selects">
+          <label class="model-select">
+            <span>EMMA</span>
+            <select id="select-emma"></select>
+          </label>
+          <label class="model-select">
+            <span>SCAN</span>
+            <select id="select-scan"></select>
+          </label>
+          <label class="model-select">
+            <span>DETECT</span>
+            <select id="select-detector"></select>
+          </label>
+          <label class="model-select">
+            <span>SEGMENT</span>
+            <select id="select-segmenter"></select>
+          </label>
+          <label class="model-select">
+            <span>INPAINT</span>
+            <select id="select-inpaint"></select>
+          </label>
+        </div>
+        <div class="status">
+          <span class="dot"></span>
+          <span id="status-text">LINK // IDLE</span>
+        </div>
+        <div class="model" id="model-name">--</div>
+        <button type="button" id="think-toggle" class="toggle" aria-pressed="false" title="Toggle deep reasoning">
+          <span class="toggle-dot"></span><span>THINK</span>
+        </button>
+        <button type="button" id="tools-toggle" class="toggle" aria-pressed="false" title="Allow Gemma to request shell commands (you approve each one)">
+          <span class="toggle-dot"></span><span>TOOLS</span>
+        </button>
+        <button type="button" id="clear" class="clear" title="Purge / clear feed">PURGE</button>
+      </header>
+
+      <section id="log" class="log" aria-live="polite"></section>
+
+      <section id="cam-view" class="cam-view">
+        <div class="cam-title">// VISUAL INPUT</div>
+        <div class="cam-video-wrap">
+          <video id="cam-video" autoplay muted playsinline></video>
+          <canvas id="cam-canvas"></canvas>
+          <div id="cam-labels" class="cam-labels"></div>
+        </div>
+        <div class="cam-controls">
+          <button type="button" id="cam-snap" class="mini-btn">SNAP</button>
+          <button type="button" id="cam-live" class="mini-btn toggle-mini" aria-pressed="false">LIVE</button>
+          <button type="button" id="cam-scan" class="mini-btn" title="Detect objects in current frame with Gemma">SCAN</button>
+          <button type="button" id="cam-scan-auto" class="mini-btn toggle-mini" aria-pressed="false" title="Re-scan every N seconds (shares the LIVE interval)">AUTO</button>
+        </div>
+        <div class="prompt-row">
+          <label for="live-prompt">live prompt</label>
+          <textarea
+            id="live-prompt"
+            rows="2"
+            placeholder="Describe the scene in under 15 words."
+          ></textarea>
+          <button type="button" id="live-prompt-reset" class="tiny-btn" title="Reset to default">↺</button>
+        </div>
+        <div class="prompt-row">
+          <label for="scan-prompt">scan prompt</label>
+          <textarea
+            id="scan-prompt"
+            rows="2"
+            placeholder="List up to {max_objects} distinct physical objects..."
+          ></textarea>
+          <button type="button" id="scan-prompt-reset" class="tiny-btn" title="Reset to default">↺</button>
+        </div>
+        <div class="track-row">
+          <input id="track-input" type="text" placeholder="track: person, cup..." />
+          <button type="button" id="track-toggle" class="mini-btn toggle-mini" aria-pressed="false">TRACK</button>
+          <button type="button" id="masks-toggle" class="mini-btn toggle-mini" aria-pressed="false" title="Pixel outlines (slower). Off = boxes (~25 fps)">MASKS</button>
+        </div>
+        <div class="custom-tag-row">
+          <input id="custom-tag-input" type="text" placeholder="+ add custom tag (e.g. background)" />
+          <button type="button" id="custom-tag-add" class="mini-btn" title="Add custom tag">ADD</button>
+        </div>
+        <div id="scan-chips" class="scan-chips" hidden></div>
+        <div class="replace-row">
+          <input id="replace-input" type="text" placeholder='replace selected with... e.g. "a fluffy cat"' />
+          <button type="button" id="replace-btn" class="mini-btn" title="Inpaint: replace the masked region with your prompt (SD 1.5 + LCM, ~3-5s)">REPLACE</button>
+        </div>
+        <div class="replace-row">
+          <input id="gen-input" type="text" placeholder='transform whole frame... e.g. "as a cyberpunk painting"' />
+          <button type="button" id="gen-btn" class="mini-btn" title="Image-to-image: stylize the full frame with your prompt">GENERATE</button>
+        </div>
+        <div class="gen-strength-row">
+          <label for="gen-strength">strength</label>
+          <input id="gen-strength" type="range" min="0.2" max="0.95" step="0.05" value="0.7" />
+          <span id="gen-strength-val">0.70</span>
+        </div>
+        <div class="cam-interval">
+          <label for="cam-interval">interval (LIVE + AUTO)</label>
+          <input id="cam-interval" type="range" min="2" max="15" step="1" value="4" />
+          <span id="cam-interval-val">4s</span>
+        </div>
+      </section>
+
+      <section id="cam-feed-panel" class="cam-feed-panel">
+        <div class="cam-feed-title">// LIVE FEED</div>
+        <div id="cam-feed-body" class="cam-feed-body"></div>
+      </section>
+
+      <section class="stats" id="stats" aria-label="system stats">
+        <div class="stat"><span class="k">MODEL</span><span class="v" id="s-model">--</span></div>
+        <div class="stat"><span class="k">PARAMS</span><span class="v" id="s-params">--</span></div>
+        <div class="stat"><span class="k">QUANT</span><span class="v" id="s-quant">--</span></div>
+        <div class="stat"><span class="k">RSS</span><span class="v" id="s-rss">--</span></div>
+        <div class="stat"><span class="k">CPU</span>
+          <span class="v"><span id="s-cpu">--</span>
+            <span class="bar-mini"><i id="s-cpu-bar"></i></span>
+          </span>
+        </div>
+        <div class="stat"><span class="k">MEM</span>
+          <span class="v"><span id="s-mem">--</span>
+            <span class="bar-mini"><i id="s-mem-bar"></i></span>
+          </span>
+        </div>
+        <div class="stat"><span class="k">THINK</span><span class="v" id="s-think">OFF</span></div>
+        <div class="stat"><span class="k">CHAT</span><span class="v" id="s-last">--</span></div>
+        <div class="stat"><span class="k">LIVE</span><span class="v" id="s-live">--</span></div>
+        <div class="stat"><span class="k">SCAN</span><span class="v" id="s-scan">--</span></div>
+        <div class="stat"><span class="k">DETECT</span><span class="v" id="s-yolo">--</span></div>
+        <div class="stat"><span class="k">SEGMENT</span><span class="v" id="s-sam">--</span></div>
+      </section>
+
+      <form id="form" class="composer">
+        <div id="attach-strip" class="attach-strip" hidden></div>
+        <div class="composer-row">
+          <span class="prompt-sigil">&gt;_</span>
+          <textarea
+            id="input"
+            class="input"
+            rows="1"
+            placeholder="transmit query... (paste or attach images)"
+            autocomplete="off"
+            spellcheck="false"
+          ></textarea>
+          <input type="file" id="attach-input" accept="image/*" multiple hidden />
+          <button type="button" id="attach-btn" class="icon-btn" title="Attach image">📎</button>
+          <button type="submit" id="send" class="send"><span>SEND</span></button>
+        </div>
+      </form>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
