@@ -982,7 +982,9 @@ function drawDetections(result) {
     lbl.style.color = stroke;
     lbl.style.textShadow = `0 0 6px ${stroke}`;
     const conf = confidences[idx] != null ? ` ${(confidences[idx] * 100).toFixed(0)}%` : "";
-    lbl.textContent = `${(labels[idx] || "?").toUpperCase()}${conf}`;
+    const id = result.ids?.[idx];
+    const idTag = id != null && id >= 0 ? `#${id} ` : "";
+    lbl.textContent = `${idTag}${(labels[idx] || "?").toUpperCase()}${conf}`;
     camLabels.appendChild(lbl);
   }
 }
@@ -1003,6 +1005,7 @@ async function trackOnce() {
         prompt,
         masks: masksOn,
         imgsz: FRAME_SIZE,
+        track: true,
       }),
     });
     if (!res.ok) {
@@ -1501,7 +1504,7 @@ document.getElementById("btn-ocr").addEventListener("click", () =>
   }));
 
 document.getElementById("btn-face").addEventListener("click", () =>
-  runOneShot("/face", "FACE", {}, (data, origB64) => {
+  runOneShot("/face", "FACE", { emotion: true }, (data, origB64) => {
     const c = document.createElement("canvas");
     c.width = data.w; c.height = data.h;
     const ctx = c.getContext("2d");
@@ -1519,8 +1522,24 @@ document.getElementById("btn-face").addEventListener("click", () =>
         }
       }
       ctx.shadowBlur = 0;
+      // Emotion labels on each face box
+      ctx.font = "16px 'Orbitron', 'Share Tech Mono', monospace";
+      for (const f of data.faces) {
+        if (!f.emotion) continue;
+        const [x1, y1] = f.box;
+        const label = `${f.emotion.toUpperCase()} ${(f.emotion_score*100|0)}%`;
+        const tw = ctx.measureText(label).width + 10;
+        ctx.fillStyle = "rgba(5,6,11,0.8)";
+        ctx.fillRect(x1, Math.max(y1 - 22, 0), tw, 22);
+        ctx.fillStyle = "#ff2bd6";
+        ctx.shadowColor = "#ff2bd6";
+        ctx.shadowBlur = 6;
+        ctx.fillText(label, x1 + 5, Math.max(y1 - 6, 16));
+        ctx.shadowBlur = 0;
+      }
+      const emos = data.faces.filter(f => f.emotion).map(f => f.emotion).join("/");
       const out = c.toDataURL("image/jpeg", 0.88).split(",")[1];
-      _feedCard(`// FACE · ${data.faces.length}`, "var(--green)", out);
+      _feedCard(`// FACE · ${data.faces.length} · ${emos || "no emotion"}`, "var(--green)", out);
     };
     img.src = `data:image/jpeg;base64,${origB64}`;
   }));

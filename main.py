@@ -29,6 +29,7 @@ from schemas import (
     DetectRequest,
     DetectResponse,
     FaceMeshResponse,
+    FaceRequest,
     GenerateRequest,
     GenerateResponse,
     ImageOnlyRequest,
@@ -354,6 +355,7 @@ async def detect_endpoint(request: DetectRequest) -> DetectResponse:
             request.conf,
             request.masks,
             request.imgsz,
+            request.track,
         )
     except Exception as err:
         log.error(f"/detect !! {err}")
@@ -586,14 +588,14 @@ async def voices_endpoint() -> dict:
 
 
 @app.post("/face", response_model=FaceMeshResponse)
-async def face_endpoint(request: ImageOnlyRequest) -> FaceMeshResponse:
+async def face_endpoint(request: FaceRequest) -> FaceMeshResponse:
     import vision
     try:
-        res = await asyncio.to_thread(vision.face_mesh, request.image)
+        res = await asyncio.to_thread(vision.face_mesh, request.image, request.emotion)
     except Exception as err:
         log.error(f"/face !! {err}")
         raise HTTPException(status_code=500, detail=str(err)) from err
-    log.info(f"/face -> {res['latency_ms']}ms faces={len(res['faces'])}")
+    log.info(f"/face -> {res['latency_ms']}ms faces={len(res['faces'])} emotion={request.emotion}")
     return FaceMeshResponse(**res)
 
 

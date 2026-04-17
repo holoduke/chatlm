@@ -110,6 +110,11 @@ class ImageOnlyRequest(BaseModel):
     image: str = Field(..., description="Base64 JPEG/PNG")
 
 
+class FaceRequest(BaseModel):
+    image: str = Field(..., description="Base64 JPEG/PNG")
+    emotion: bool = Field(False, description="Run emotion classifier on each face (adds ~50-100ms per face)")
+
+
 class OcrResponse(BaseModel):
     w: int
     h: int
@@ -122,6 +127,7 @@ class FaceMeshResponse(BaseModel):
     h: int
     faces: list[dict]
     latency_ms: int
+    timings_ms: dict[str, float] = Field(default_factory=dict)
 
 
 class TranscribeRequest(BaseModel):
@@ -200,6 +206,7 @@ class DetectRequest(BaseModel):
     conf: float = Field(0.08, ge=0.01, le=0.9)
     masks: bool = True
     imgsz: int = Field(480, ge=256, le=1024)
+    track: bool = Field(False, description="ByteTrack stable IDs across frames")
 
 
 class SetModelRequest(BaseModel):
@@ -212,6 +219,7 @@ class DetectResponse(BaseModel):
     boxes: list[list[int]]
     labels: list[str]
     confidences: list[float]
+    ids: list[int] = Field(default_factory=list)
     w: int
     h: int
     latency_ms: int

@@ -91,18 +91,25 @@ class YoloWorldDetector:
         self._model = YOLOWorld(weights)
         self._last_classes: tuple[str, ...] | None = None
 
-    def detect(self, image, prompts, conf, imgsz):
+    def detect(self, image, prompts, conf, imgsz, track: bool = False):
         targets = tuple(prompts)
         if self._last_classes != targets:
             self._model.set_classes(list(targets))
             self._last_classes = targets
-        res = self._model.predict(image, verbose=False, conf=conf, imgsz=imgsz)[0]
+        if track:
+            res = self._model.track(
+                image, verbose=False, conf=conf, imgsz=imgsz,
+                persist=True, tracker="bytetrack.yaml",
+            )[0]
+        else:
+            res = self._model.predict(image, verbose=False, conf=conf, imgsz=imgsz)[0]
         if res.boxes is None or len(res.boxes) == 0:
-            return np.empty((0, 4)), np.empty((0,), dtype=int), np.empty((0,))
+            return np.empty((0, 4)), np.empty((0,), dtype=int), np.empty((0,)), np.empty((0,), dtype=int)
         boxes = res.boxes.xyxy.cpu().numpy()
         cls_idx = res.boxes.cls.cpu().numpy().astype(int)
         confs = res.boxes.conf.cpu().numpy()
-        return boxes, cls_idx, confs
+        ids = (res.boxes.id.cpu().numpy().astype(int) if res.boxes.id is not None else np.full(len(boxes), -1, dtype=int))
+        return boxes, cls_idx, confs, ids
 
 
 class GroundingDinoDetector:
@@ -123,7 +130,7 @@ class GroundingDinoDetector:
         ).to(self._device)
         self._model.eval()
 
-    def detect(self, image, prompts, conf, imgsz):
+    def detect(self, image, prompts, conf, imgsz, track: bool = False):
         pil = Image.fromarray(image)
         text = ". ".join(prompts) + "."
         inputs = self._processor(images=pil, text=text, return_tensors="pt").to(self._device)
@@ -155,7 +162,7 @@ class GroundingDinoDetector:
                     best = i
                     break
             cls_idx.append(best)
-        return boxes, np.asarray(cls_idx, dtype=int), scores
+        return boxes, np.asarray(cls_idx, dtype=int), scores, np.full(len(boxes), -1, dtype=int)
 
 
 class Owlv2Detector:
@@ -173,7 +180,7 @@ class Owlv2Detector:
         ).to(self._device)
         self._model.eval()
 
-    def detect(self, image, prompts, conf, imgsz):
+    def detect(self, image, prompts, conf, imgsz, track: bool = False):
         pil = Image.fromarray(image)
         texts = [[f"a photo of a {p}" for p in prompts]]
         inputs = self._processor(text=texts, images=pil, return_tensors="pt").to(self._device)
@@ -186,7 +193,7 @@ class Owlv2Detector:
         boxes = results["boxes"].cpu().numpy() if len(results["boxes"]) else np.empty((0, 4))
         scores = results["scores"].cpu().numpy() if len(results["scores"]) else np.empty((0,))
         cls_idx = results["labels"].cpu().numpy().astype(int) if len(results["labels"]) else np.empty((0,), dtype=int)
-        return boxes, cls_idx, scores
+        return boxes, cls_idx, scores, np.full(len(boxes), -1, dtype=int)
 
 
 class UltralyticsSegmenter:
@@ -317,6 +324,7 @@ def detect_and_segment(
     conf: float = 0.08,
     masks_on: bool = True,
     imgsz: int = 480,
+    track: bool = False,
 ) -> dict:
     targets = _parse_targets(prompt)
     if not targets:
@@ -326,6 +334,7 @@ def detect_and_segment(
             "boxes": [],
             "labels": [],
             "confidences": [],
+            "ids": [],
             "w": 0,
             "h": 0,
             "timings_ms": {},
@@ -340,7 +349,7 @@ def detect_and_segment(
     with _lock:
         det = _ensure_detector()
         td = time.perf_counter()
-        boxes, cls_idx, confs = det.detect(arr, targets, conf, imgsz)
+        boxes, cls_idx, confs, ids = det.detect(arr, targets, conf, imgsz, track=track)
         timings["detect"] = round((time.perf_counter() - td) * 1000, 1)
 
         if len(boxes) == 0:
@@ -350,6 +359,7 @@ def detect_and_segment(
                 "boxes": [],
                 "labels": [],
                 "confidences": [],
+                "ids": [],
                 "w": w,
                 "h": h,
                 "timings_ms": timings,
@@ -389,6 +399,7 @@ def detect_and_segment(
         "boxes": box_list,
         "labels": labels,
         "confidences": [round(float(c), 3) for c in confs],
+        "ids": [int(i) for i in ids],
         "w": w,
         "h": h,
         "timings_ms": timings,

@@ -129,6 +129,7 @@ def estimate_depth(image_b64: str, colormap: str = "inferno") -> dict:
 _rmbg_session: Any = None
 _ocr_reader: Any = None
 _face_mesh: Any = None
+_emotion_pipe: Any = None
 
 
 def _ensure_rmbg():
@@ -238,7 +239,23 @@ def _ensure_face_mesh():
     return _face_mesh
 
 
-def face_mesh(image_b64: str) -> dict:
+def _ensure_emotion():
+    global _emotion_pipe
+    if _emotion_pipe is not None:
+        return _emotion_pipe
+    from transformers import pipeline
+    import torch
+    device = 0 if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else -1)
+    log.info(f"loading face-emotion classifier on device={device}...")
+    _emotion_pipe = pipeline(
+        "image-classification",
+        model="trpakov/vit-face-expression",
+        device=device,
+    )
+    return _emotion_pipe
+
+
+def face_mesh(image_b64: str, emotion: bool = False) -> dict:
     import mediapipe as mp
 
     detector = _ensure_face_mesh()
@@ -250,7 +267,7 @@ def face_mesh(image_b64: str) -> dict:
     with _lock:
         t0 = time.perf_counter()
         result = detector.detect(mp_image)
-        dur = (time.perf_counter() - t0) * 1000
+        dur_mesh = (time.perf_counter() - t0) * 1000
 
     faces = []
     for fl in result.face_landmarks:
@@ -261,4 +278,31 @@ def face_mesh(image_b64: str) -> dict:
             "landmarks": [[round(x, 1), round(y, 1)] for x, y in pts],
             "box": [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
         })
-    return {"w": w, "h": h, "faces": faces, "latency_ms": int(dur)}
+
+    dur_emo = 0.0
+    if emotion and faces:
+        emo = _ensure_emotion()
+        te = time.perf_counter()
+        for f in faces:
+            x1, y1, x2, y2 = f["box"]
+            # Pad a little — the ViT expects a framed face, not a tight mesh bbox.
+            pad = int(max(x2 - x1, y2 - y1) * 0.15)
+            cx1 = max(0, x1 - pad); cy1 = max(0, y1 - pad)
+            cx2 = min(w, x2 + pad); cy2 = min(h, y2 + pad)
+            crop = pil.crop((cx1, cy1, cx2, cy2))
+            try:
+                preds = emo(crop, top_k=1)
+                if preds:
+                    f["emotion"] = preds[0]["label"]
+                    f["emotion_score"] = round(float(preds[0]["score"]), 3)
+            except Exception as err:
+                log.warning(f"emotion classify failed: {err}")
+        dur_emo = (time.perf_counter() - te) * 1000
+
+    return {
+        "w": w,
+        "h": h,
+        "faces": faces,
+        "latency_ms": int(dur_mesh + dur_emo),
+        "timings_ms": {"mesh": round(dur_mesh, 1), "emotion": round(dur_emo, 1)},
+    }
