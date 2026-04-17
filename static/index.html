@@ -95,6 +95,7 @@
         <div class="extras-row extras-row-overlays">
           <button type="button" id="cam-live" class="mini-btn toggle-mini" aria-pressed="false" title="Gemma live scene description (appended to the LIVE FEED)">LIVE</button>
           <button type="button" id="track-toggle" class="mini-btn toggle-mini" aria-pressed="false" title="Open-vocab detection from the TRACK input (YOLO-World / Grounding DINO)">TRACK</button>
+          <button type="button" id="masks-toggle" class="mini-btn toggle-mini" aria-pressed="false" title="Pixel-perfect masks for TRACK results (slower). Off = bounding boxes only.">SEGMENT</button>
           <button type="button" id="btn-pose" class="mini-btn toggle-mini" aria-pressed="false" title="Live pose skeleton + body fill, stable #ids per person">POSE</button>
           <button type="button" id="btn-face" class="mini-btn toggle-mini" aria-pressed="false" title="Live face mesh + emotion + stable #ids">FACE</button>
           <button type="button" id="btn-people" class="mini-btn toggle-mini" aria-pressed="false" title="Live person outline via MediaPipe Selfie Segmenter (~10ms)">PEOPLE</button>
@@ -114,7 +115,6 @@
           <div class="cam-title track-props-title">// TRACK SETTINGS</div>
           <div class="track-row">
             <input id="track-input" type="text" placeholder="track: person, cup..." />
-            <button type="button" id="masks-toggle" class="mini-btn toggle-mini" aria-pressed="false" title="Pixel outlines (slower). Off = boxes (~25 fps)">MASKS</button>
           </div>
           <div class="custom-tag-row">
             <input id="custom-tag-input" type="text" placeholder="+ add custom tag (e.g. background)" />
