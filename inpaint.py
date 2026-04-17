@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageFilter
 
-log = logging.getLogger("emma4.inpaint")
+log = logging.getLogger("gemma4.inpaint")
 
 _pipe: Any = None
 _i2i_pipe: Any = None

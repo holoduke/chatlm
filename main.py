@@ -55,7 +55,7 @@ from schemas import (
 )
 
 logging_setup.configure()
-log = logging.getLogger("emma4")
+log = logging.getLogger("gemma4")
 
 # Mutable runtime state, swappable via /models/* endpoints.
 _STATE: dict[str, str] = {
@@ -87,7 +87,7 @@ async def lifespan(_: FastAPI):
     await client.close()
 
 
-app = FastAPI(title="emma4", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="gemma4", version="0.1.0", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

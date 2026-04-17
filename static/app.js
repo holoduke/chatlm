@@ -9,7 +9,7 @@ const modelEl = document.getElementById("model-name");
 const history = [];
 const pending = { images: [] }; // base64 images queued for next send
 const thinkEl = document.getElementById("think-toggle");
-let thinkOn = localStorage.getItem("emma4.think") === "1";
+let thinkOn = localStorage.getItem("gemma4.think") === "1";
 function applyThink() {
   thinkEl.setAttribute("aria-pressed", thinkOn ? "true" : "false");
   const s = document.getElementById("s-think");
@@ -17,20 +17,20 @@ function applyThink() {
 }
 thinkEl.addEventListener("click", () => {
   thinkOn = !thinkOn;
-  localStorage.setItem("emma4.think", thinkOn ? "1" : "0");
+  localStorage.setItem("gemma4.think", thinkOn ? "1" : "0");
   applyThink();
 });
 applyThink();
 
 /* ---------- tool use ---------- */
 const toolsEl = document.getElementById("tools-toggle");
-let toolsOn = localStorage.getItem("emma4.tools") === "1";
+let toolsOn = localStorage.getItem("gemma4.tools") === "1";
 function applyTools() {
   toolsEl.setAttribute("aria-pressed", toolsOn ? "true" : "false");
 }
 toolsEl.addEventListener("click", () => {
   toolsOn = !toolsOn;
-  localStorage.setItem("emma4.tools", toolsOn ? "1" : "0");
+  localStorage.setItem("gemma4.tools", toolsOn ? "1" : "0");
   applyTools();
 });
 applyTools();
@@ -137,7 +137,7 @@ function addMessage(who, text, opts = {}) {
   wrap.className = `msg ${who}`;
   const label = document.createElement("div");
   label.className = "who";
-  label.textContent = who === "user" ? "> USER" : who === "bot" ? "// EMMA" : "// SYS";
+  label.textContent = who === "user" ? "> USER" : who === "bot" ? "// GEMMA" : "// SYS";
   const body = document.createElement("div");
   body.className = "body";
   if (opts.images && opts.images.length) {
@@ -636,14 +636,14 @@ let scanBusy = false;
 let scanToken = 0;
 
 // Restore saved interval
-const savedInterval = localStorage.getItem("emma4.interval");
+const savedInterval = localStorage.getItem("gemma4.interval");
 if (savedInterval) {
   camInterval.value = savedInterval;
   camIntervalVal.textContent = `${savedInterval}s`;
 }
 camInterval.addEventListener("input", () => {
   camIntervalVal.textContent = `${camInterval.value}s`;
-  localStorage.setItem("emma4.interval", camInterval.value);
+  localStorage.setItem("gemma4.interval", camInterval.value);
   if (liveTimer) restartLive();
 });
 
@@ -693,13 +693,13 @@ function stopCam() {
   camVideo.srcObject = null;
 }
 
-let FRAME_SIZE = parseInt(localStorage.getItem("emma4.resolution") || "480", 10);
+let FRAME_SIZE = parseInt(localStorage.getItem("gemma4.resolution") || "480", 10);
 const selResolution = document.getElementById("select-resolution");
 if (selResolution) {
   selResolution.value = String(FRAME_SIZE);
   selResolution.addEventListener("change", (e) => {
     FRAME_SIZE = parseInt(e.target.value, 10);
-    localStorage.setItem("emma4.resolution", String(FRAME_SIZE));
+    localStorage.setItem("gemma4.resolution", String(FRAME_SIZE));
     // Invalidate reusable capture canvas so it re-sizes to the new dims.
     _captureCanvas.canvas = null;
     _captureCanvas.cw = 0;
@@ -791,10 +791,10 @@ function bindPromptField(textareaId, resetId, storageKey, defaultValue) {
 }
 
 const livePromptEl = bindPromptField(
-  "live-prompt", "live-prompt-reset", "emma4.livePrompt", DEFAULT_LIVE_PROMPT,
+  "live-prompt", "live-prompt-reset", "gemma4.livePrompt", DEFAULT_LIVE_PROMPT,
 );
 const scanPromptEl = bindPromptField(
-  "scan-prompt", "scan-prompt-reset", "emma4.scanPrompt", DEFAULT_SCAN_PROMPT,
+  "scan-prompt", "scan-prompt-reset", "gemma4.scanPrompt", DEFAULT_SCAN_PROMPT,
 );
 
 async function liveDescribe() {
@@ -874,11 +874,11 @@ const camCanvas = document.getElementById("cam-canvas");
 const camLabels = document.getElementById("cam-labels");
 let trackTimer = null;
 let trackBusy = false;
-let masksOn = localStorage.getItem("emma4.masks") === "1";
+let masksOn = localStorage.getItem("gemma4.masks") === "1";
 masksToggle.setAttribute("aria-pressed", masksOn ? "true" : "false");
 masksToggle.addEventListener("click", () => {
   masksOn = !masksOn;
-  localStorage.setItem("emma4.masks", masksOn ? "1" : "0");
+  localStorage.setItem("gemma4.masks", masksOn ? "1" : "0");
   masksToggle.setAttribute("aria-pressed", masksOn ? "true" : "false");
 });
 
@@ -1090,10 +1090,10 @@ let autoTrackPrimed = false;
 // Tags the user added manually — kept across AUTO scans and never purged by
 // the "drop stale selections" logic below.
 const customTags = new Set(
-  JSON.parse(localStorage.getItem("emma4.customTags") || "[]"),
+  JSON.parse(localStorage.getItem("gemma4.customTags") || "[]"),
 );
 function persistCustomTags() {
-  localStorage.setItem("emma4.customTags", JSON.stringify([...customTags]));
+  localStorage.setItem("gemma4.customTags", JSON.stringify([...customTags]));
 }
 
 function makeChip(tag, opts = {}) {
@@ -1355,12 +1355,12 @@ const genInput = document.getElementById("gen-input");
 const genBtn = document.getElementById("gen-btn");
 const genStrength = document.getElementById("gen-strength");
 const genStrengthVal = document.getElementById("gen-strength-val");
-const savedStrength = localStorage.getItem("emma4.genStrength");
+const savedStrength = localStorage.getItem("gemma4.genStrength");
 if (savedStrength) genStrength.value = savedStrength;
 genStrengthVal.textContent = parseFloat(genStrength.value).toFixed(2);
 genStrength.addEventListener("input", () => {
   genStrengthVal.textContent = parseFloat(genStrength.value).toFixed(2);
-  localStorage.setItem("emma4.genStrength", genStrength.value);
+  localStorage.setItem("gemma4.genStrength", genStrength.value);
 });
 
 async function runGenerate() {
@@ -1636,7 +1636,7 @@ async function setMode(mode) {
   document.querySelectorAll(".mode-btn").forEach((b) => {
     b.setAttribute("aria-pressed", b.dataset.mode === m ? "true" : "false");
   });
-  localStorage.setItem("emma4.mode", m);
+  localStorage.setItem("gemma4.mode", m);
   if (m === "video") {
     await startCam();
     if (!camStream) return;
@@ -1700,12 +1700,12 @@ function fillOllamaSelect(sel, models, current) {
 }
 
 const STORAGE = {
-  emma: "emma4.model.emma",
-  scan: "emma4.model.scan",
-  detector: "emma4.model.detector",
-  segmenter: "emma4.model.segmenter",
-  inpaint: "emma4.model.inpaint",
-  interval: "emma4.interval",
+  emma: "gemma4.model.emma",
+  scan: "gemma4.model.scan",
+  detector: "gemma4.model.detector",
+  segmenter: "gemma4.model.segmenter",
+  inpaint: "gemma4.model.inpaint",
+  interval: "gemma4.interval",
 };
 
 function fillPresetSelect(sel, presets, current) {
@@ -1803,5 +1803,5 @@ selInpaint.addEventListener("change", (e) =>
 addMessage("sys", "Neural link established. Gemma-4 online. Transmit query below.");
 loadHealth();
 refreshModels();
-setMode(localStorage.getItem("emma4.mode") || "chat");
+setMode(localStorage.getItem("gemma4.mode") || "chat");
 if (document.body.classList.contains("mode-chat")) inputEl.focus();

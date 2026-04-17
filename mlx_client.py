@@ -14,7 +14,7 @@ import re
 import time
 from typing import Any, AsyncIterator
 
-log = logging.getLogger("emma4.mlx")
+log = logging.getLogger("gemma4.mlx")
 
 # Catalogue of MLX-community Gemma 4 models; label drives the dropdown.
 MLX_MODELS: dict[str, dict] = {
