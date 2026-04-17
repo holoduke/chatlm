@@ -69,6 +69,43 @@ class Img2ImgResponse(BaseModel):
     timings_ms: dict[str, float]
 
 
+class PoseRequest(BaseModel):
+    image: str = Field(..., description="Base64 JPEG/PNG")
+    conf: float = Field(0.3, ge=0.05, le=0.95)
+    imgsz: int = Field(480, ge=256, le=1024)
+
+
+class PoseResponse(BaseModel):
+    w: int
+    h: int
+    people: list[dict]
+    latency_ms: int
+
+
+class DepthRequest(BaseModel):
+    image: str = Field(..., description="Base64 JPEG/PNG")
+    colormap: str = Field("inferno", description="inferno|magma|viridis|turbo")
+
+
+class DepthResponse(BaseModel):
+    image: str
+    width: int
+    height: int
+    latency_ms: int
+
+
+class RmbgRequest(BaseModel):
+    image: str = Field(..., description="Base64 JPEG/PNG")
+    return_mask: bool = Field(False, description="true=binary mask PNG; false=RGBA cutout")
+
+
+class RmbgResponse(BaseModel):
+    image: str
+    width: int
+    height: int
+    latency_ms: int
+
+
 class ToolExecRequest(BaseModel):
     command: str = Field(..., min_length=1, max_length=4000)
     cwd: str | None = Field(None, max_length=500)

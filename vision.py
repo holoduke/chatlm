@@ -1,0 +1,164 @@
+"""Extra vision pipelines: pose, depth, background removal.
+
+Each capability is lazy-loaded on first request. Everything runs on MPS
+where safe; falls back to CPU otherwise.
+"""
+from __future__ import annotations
+
+import base64
+import io
+import logging
+import threading
+import time
+from typing import Any
+
+import cv2
+import numpy as np
+from PIL import Image
+
+log = logging.getLogger("emma4.vision")
+
+_lock = threading.Lock()
+_pose_model: Any = None
+_depth_pipe: Any = None
+_rmbg_pipe: Any = None
+
+
+# ---------------- POSE (YOLOv8 pose via ultralytics) ----------------
+
+def _ensure_pose():
+    global _pose_model
+    if _pose_model is not None:
+        return _pose_model
+    from ultralytics import YOLO
+    from ultralytics.utils.downloads import attempt_download_asset
+    w = "yolov8n-pose.pt"
+    attempt_download_asset(w)
+    log.info(f"loading {w}...")
+    _pose_model = YOLO(w)
+    return _pose_model
+
+
+def pose_estimate(image_b64: str, conf: float = 0.3, imgsz: int = 480) -> dict:
+    model = _ensure_pose()
+    img_bytes = base64.b64decode(image_b64)
+    arr = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+    h, w = arr.shape[:2]
+
+    with _lock:
+        t0 = time.perf_counter()
+        r = model.predict(arr, verbose=False, conf=conf, imgsz=imgsz)[0]
+        dur = (time.perf_counter() - t0) * 1000
+
+    if r.keypoints is None or len(r.keypoints) == 0:
+        return {"w": w, "h": h, "people": [], "latency_ms": int(dur)}
+
+    kps = r.keypoints.xy.cpu().numpy()  # (N, 17, 2)
+    kps_conf = r.keypoints.conf.cpu().numpy() if r.keypoints.conf is not None else None
+    boxes = r.boxes.xyxy.cpu().numpy() if r.boxes is not None else None
+    confs = r.boxes.conf.cpu().numpy() if r.boxes is not None else None
+
+    people = []
+    for i in range(len(kps)):
+        person = {
+            "keypoints": [[float(x), float(y)] for x, y in kps[i]],
+            "kp_conf": [float(c) for c in kps_conf[i]] if kps_conf is not None else None,
+            "box": [int(v) for v in boxes[i]] if boxes is not None else None,
+            "conf": float(confs[i]) if confs is not None else None,
+        }
+        people.append(person)
+    return {"w": w, "h": h, "people": people, "latency_ms": int(dur)}
+
+
+# ---------------- DEPTH (Depth Anything V2 Small via transformers) ----------------
+
+def _ensure_depth():
+    global _depth_pipe
+    if _depth_pipe is not None:
+        return _depth_pipe
+    from transformers import pipeline
+    import torch
+    device = 0 if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else -1)
+    log.info(f"loading Depth-Anything-V2-Small on device={device}...")
+    _depth_pipe = pipeline(
+        task="depth-estimation",
+        model="depth-anything/Depth-Anything-V2-Small-hf",
+        device=device,
+    )
+    return _depth_pipe
+
+
+def estimate_depth(image_b64: str, colormap: str = "inferno") -> dict:
+    pipe = _ensure_depth()
+    img_bytes = base64.b64decode(image_b64)
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+    with _lock:
+        t0 = time.perf_counter()
+        result = pipe(img)
+        dur = (time.perf_counter() - t0) * 1000
+
+    depth_pil = result["depth"] if isinstance(result, dict) else result  # PIL Image
+    depth_arr = np.array(depth_pil).astype(np.float32)
+    if depth_arr.max() > 0:
+        norm = (depth_arr - depth_arr.min()) / (depth_arr.max() - depth_arr.min())
+    else:
+        norm = depth_arr
+    u8 = (norm * 255).astype(np.uint8)
+
+    cmap = {
+        "inferno": cv2.COLORMAP_INFERNO,
+        "magma": cv2.COLORMAP_MAGMA,
+        "viridis": cv2.COLORMAP_VIRIDIS,
+        "turbo": cv2.COLORMAP_TURBO,
+    }.get(colormap, cv2.COLORMAP_INFERNO)
+    colored = cv2.applyColorMap(u8, cmap)  # BGR
+    rgb = cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
+    out_buf = io.BytesIO()
+    Image.fromarray(rgb).save(out_buf, format="JPEG", quality=85)
+    return {
+        "image": base64.b64encode(out_buf.getvalue()).decode("ascii"),
+        "width": rgb.shape[1],
+        "height": rgb.shape[0],
+        "latency_ms": int(dur),
+    }
+
+
+# ---------------- BACKGROUND REMOVAL (rembg / U2Net) ----------------
+
+_rmbg_session: Any = None
+
+
+def _ensure_rmbg():
+    global _rmbg_session
+    if _rmbg_session is not None:
+        return _rmbg_session
+    from rembg import new_session
+    log.info("loading rembg U2Net session...")
+    _rmbg_session = new_session("u2net")
+    return _rmbg_session
+
+
+def remove_bg(image_b64: str, return_mask: bool = False) -> dict:
+    from rembg import remove
+
+    session = _ensure_rmbg()
+    img_bytes = base64.b64decode(image_b64)
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+    with _lock:
+        t0 = time.perf_counter()
+        if return_mask:
+            out = remove(img, session=session, only_mask=True)
+        else:
+            out = remove(img, session=session)
+        dur = (time.perf_counter() - t0) * 1000
+
+    buf = io.BytesIO()
+    out.save(buf, format="PNG")
+    return {
+        "image": base64.b64encode(buf.getvalue()).decode("ascii"),
+        "width": img.size[0],
+        "height": img.size[1],
+        "latency_ms": int(dur),
+    }

@@ -522,6 +522,28 @@ body.mode-video .bar-mini { width: 24px; }
   border-bottom: 1px dashed rgba(0, 240, 255, 0.25);
   margin-bottom: 6px;
 }
+.stat-group {
+  padding-bottom: 6px;
+  border-bottom: 1px dotted rgba(0, 240, 255, 0.15);
+  margin-bottom: 6px;
+}
+.stat-group:last-child { border-bottom: 0; margin-bottom: 0; }
+.stat-group-title {
+  font-family: "Orbitron", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  text-shadow: 0 0 5px rgba(0, 240, 255, 0.35);
+  padding: 2px 0 4px;
+}
+.stat-total {
+  border-top: 1px dashed rgba(255, 43, 214, 0.35);
+  margin-top: 4px;
+  padding-top: 5px !important;
+}
+.stat-total .k { color: var(--magenta); }
+.stat-total .v { color: var(--magenta); text-shadow: 0 0 6px rgba(255, 43, 214, 0.5); }
 .stat {
   display: flex;
   justify-content: space-between;
@@ -818,6 +840,16 @@ body.mode-video .bar-mini { width: 24px; }
 }
 .gen-strength-row input[type="range"] { flex: 1; accent-color: var(--green); }
 .gen-strength-row span { color: var(--green); min-width: 32px; text-align: right; }
+
+.extras-row {
+  display: flex;
+  gap: 6px;
+}
+.extras-row .mini-btn {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.extras-row .mini-btn:hover { background: rgba(255, 176, 0, 0.15); box-shadow: 0 0 10px rgba(255, 176, 0, 0.4); }
 
 .inpaint-result {
   margin-top: 8px;

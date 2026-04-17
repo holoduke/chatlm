@@ -24,6 +24,8 @@ def _dispatch(model_name: str):
 from schemas import (
     ChatRequest,
     ChatResponse,
+    DepthRequest,
+    DepthResponse,
     DetectRequest,
     DetectResponse,
     GenerateRequest,
@@ -33,6 +35,10 @@ from schemas import (
     InpaintRequest,
     InpaintResponse,
     Message,
+    PoseRequest,
+    PoseResponse,
+    RmbgRequest,
+    RmbgResponse,
     ScanRequest,
     ScanResponse,
     SetModelRequest,
@@ -503,6 +509,43 @@ async def inpaint_endpoint(request: InpaintRequest) -> InpaintResponse:
     latency_ms = int((time.perf_counter() - t0) * 1000)
     log.info(f"/inpaint -> {latency_ms}ms timings={result['timings_ms']}")
     return InpaintResponse(**result, latency_ms=latency_ms)
+
+
+@app.post("/pose", response_model=PoseResponse)
+async def pose_endpoint(request: PoseRequest) -> PoseResponse:
+    import vision
+    t0 = time.perf_counter()
+    try:
+        res = await asyncio.to_thread(vision.pose_estimate, request.image, request.conf, request.imgsz)
+    except Exception as err:
+        log.error(f"/pose !! {err}")
+        raise HTTPException(status_code=500, detail=str(err)) from err
+    log.info(f"/pose -> {int((time.perf_counter()-t0)*1000)}ms people={len(res['people'])}")
+    return PoseResponse(**res)
+
+
+@app.post("/depth", response_model=DepthResponse)
+async def depth_endpoint(request: DepthRequest) -> DepthResponse:
+    import vision
+    try:
+        res = await asyncio.to_thread(vision.estimate_depth, request.image, request.colormap)
+    except Exception as err:
+        log.error(f"/depth !! {err}")
+        raise HTTPException(status_code=500, detail=str(err)) from err
+    log.info(f"/depth -> {res['latency_ms']}ms {res['width']}x{res['height']}")
+    return DepthResponse(**res)
+
+
+@app.post("/remove-bg", response_model=RmbgResponse)
+async def rmbg_endpoint(request: RmbgRequest) -> RmbgResponse:
+    import vision
+    try:
+        res = await asyncio.to_thread(vision.remove_bg, request.image, request.return_mask)
+    except Exception as err:
+        log.error(f"/remove-bg !! {err}")
+        raise HTTPException(status_code=500, detail=str(err)) from err
+    log.info(f"/remove-bg -> {res['latency_ms']}ms {res['width']}x{res['height']}")
+    return RmbgResponse(**res)
 
 
 @app.post("/img2img", response_model=Img2ImgResponse)

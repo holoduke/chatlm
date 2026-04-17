@@ -591,6 +591,31 @@ if (selResolution) {
 function setStat(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text;
+  // Recompute the PIPELINE LATENCY total whenever a contributing tile updates.
+  if (["s-live", "s-scan", "s-yolo", "s-sam"].includes(id)) recomputeTotal();
+}
+
+function parseMs(txt) {
+  if (!txt) return null;
+  const m = String(txt).match(/(\d+(?:\.\d+)?)\s*ms/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function recomputeTotal() {
+  const ids = ["s-live", "s-scan", "s-yolo", "s-sam"];
+  let sum = 0;
+  let any = false;
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const v = parseMs(el.textContent);
+    if (v != null) {
+      sum += v;
+      any = true;
+    }
+  }
+  const t = document.getElementById("s-total");
+  if (t) t.textContent = any ? `${Math.round(sum)} ms` : "--";
 }
 
 const _captureCanvas = { canvas: null, cw: 0, ch: 0 };
@@ -1278,6 +1303,98 @@ genInput.addEventListener("keydown", (e) => {
     runGenerate();
   }
 });
+
+/* ---------- extras: POSE · DEPTH · CUTOUT ---------- */
+
+function _feedCard(headLabel, headColor, imgB64) {
+  const card = document.createElement("div");
+  card.className = "inpaint-result";
+  card.innerHTML = `
+    <div class="head" style="color:${headColor}">
+      <span>${headLabel}</span>
+      <button type="button">✕</button>
+    </div>`;
+  card.querySelector(".head button").addEventListener("click", () => card.remove());
+  const img = document.createElement("img");
+  img.src = `data:image/${imgB64.startsWith("iVBOR") ? "png" : "jpeg"};base64,${imgB64}`;
+  card.appendChild(img);
+  camFeedBody.insertBefore(card, camFeedBody.firstChild);
+  camFeedBody.scrollTop = 0;
+}
+
+async function runOneShot(path, label, extraBody = {}, draw) {
+  if (!camStream) {
+    appendFeed(`[${label}] camera not active`, "err");
+    return;
+  }
+  const btn = document.activeElement;
+  if (btn && btn.tagName === "BUTTON") btn.disabled = true;
+  try {
+    const imageB64 = await captureFrame(FRAME_SIZE, 0.8);
+    if (!imageB64) throw new Error("no frame");
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: imageB64, ...extraBody }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0,200)}`);
+    const data = await res.json();
+    appendFeed(`[${label}] ${data.latency_ms} ms`, "scan");
+    draw(data, imageB64);
+  } catch (err) {
+    appendFeed(`[${label} ERR] ${err.message}`, "err");
+  } finally {
+    if (btn && btn.tagName === "BUTTON") btn.disabled = false;
+  }
+}
+
+document.getElementById("btn-depth").addEventListener("click", () =>
+  runOneShot("/depth", "DEPTH", {}, (data) =>
+    _feedCard("// DEPTH", "var(--cyan)", data.image)));
+
+document.getElementById("btn-cutout").addEventListener("click", () =>
+  runOneShot("/remove-bg", "CUTOUT", { return_mask: false }, (data) =>
+    _feedCard("// CUTOUT", "var(--green)", data.image)));
+
+document.getElementById("btn-pose").addEventListener("click", () =>
+  runOneShot("/pose", "POSE", {}, (data, origB64) => {
+    // draw keypoints on a copy of the frame
+    const c = document.createElement("canvas");
+    c.width = data.w; c.height = data.h;
+    const ctx = c.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, data.w, data.h);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#ff2bd6";
+      ctx.fillStyle = "#00f0ff";
+      ctx.shadowColor = "#00f0ff";
+      ctx.shadowBlur = 8;
+      // COCO skeleton connections
+      const skeleton = [[5,6],[5,11],[6,12],[11,12],[5,7],[7,9],[6,8],[8,10],[11,13],[13,15],[12,14],[14,16],[0,1],[0,2],[1,3],[2,4]];
+      for (const p of data.people) {
+        const kp = p.keypoints;
+        const kc = p.kp_conf || [];
+        for (const [a,b] of skeleton) {
+          if ((kc[a] || 1) < 0.3 || (kc[b] || 1) < 0.3) continue;
+          ctx.beginPath();
+          ctx.moveTo(kp[a][0], kp[a][1]);
+          ctx.lineTo(kp[b][0], kp[b][1]);
+          ctx.stroke();
+        }
+        for (let i=0; i<kp.length; i++) {
+          if ((kc[i] || 1) < 0.3) continue;
+          ctx.beginPath();
+          ctx.arc(kp[i][0], kp[i][1], 4, 0, 2*Math.PI);
+          ctx.fill();
+        }
+      }
+      ctx.shadowBlur = 0;
+      const out = c.toDataURL("image/jpeg", 0.88).split(",")[1];
+      _feedCard(`// POSE · ${data.people.length} people`, "var(--amber)", out);
+    };
+    img.src = `data:image/jpeg;base64,${origB64}`;
+  }));
 
 const scanAutoBtn = document.getElementById("cam-scan-auto");
 function startScanAuto() {
