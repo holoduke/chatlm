@@ -165,6 +165,8 @@ body.mode-video .bar-mini { width: 24px; }
 }
 .bar-spacer { flex: 1 1 auto; }  /* pushes status/toggles to the right on line 1 */
 .bar-line-selects .model { margin-left: auto; }
+.bar-line-res .model-select span { color: var(--amber); }
+.bar-line-res .model-select select { border-color: rgba(255, 176, 0, 0.35); color: var(--amber); }
 
 .status { margin-left: 0; }  /* override old margin-left:auto now that spacer does the job */
 

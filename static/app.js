@@ -698,13 +698,40 @@ function stopCam() {
   camVideo.srcObject = null;
 }
 
-let FRAME_SIZE = parseInt(localStorage.getItem("gemma4.resolution") || "480", 10);
-const selResolution = document.getElementById("select-resolution");
-if (selResolution) {
-  selResolution.value = String(FRAME_SIZE);
-  selResolution.addEventListener("change", (e) => {
-    FRAME_SIZE = parseInt(e.target.value, 10);
-    localStorage.setItem("gemma4.resolution", String(FRAME_SIZE));
+/* Per-pipeline input resolutions. A legacy gemma4.resolution seeds all three
+ * on first load, so existing users keep their preferred value. */
+const RES_OPTIONS = [160, 192, 224, 256, 288, 320, 384, 480, 640, 768];
+const RES_DEFAULTS = { vision: 480, detect: 480, segment: 320 };
+const _legacy = parseInt(localStorage.getItem("gemma4.resolution") || "0", 10);
+const RES = {
+  vision:  parseInt(localStorage.getItem("gemma4.res.vision")  || (_legacy || RES_DEFAULTS.vision),  10),
+  detect:  parseInt(localStorage.getItem("gemma4.res.detect")  || (_legacy || RES_DEFAULTS.detect),  10),
+  segment: parseInt(localStorage.getItem("gemma4.res.segment") || (_legacy || RES_DEFAULTS.segment), 10),
+};
+// FRAME_SIZE stays as a fallback for code paths that don't pipe a specific
+// resolution through yet (e.g. chat-mode attach + inpaint/generate captures).
+let FRAME_SIZE = RES.vision;
+
+function _fillResSelect(sel, current) {
+  sel.innerHTML = "";
+  for (const v of RES_OPTIONS) {
+    const o = document.createElement("option");
+    o.value = String(v);
+    o.textContent = v === 160 ? "160 px (potato)" : v === 768 ? "768 px (sharp)" : `${v} px`;
+    if (v === current) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+for (const kind of Object.keys(RES_DEFAULTS)) {
+  const sel = document.querySelector(`[data-res="${kind}"]`);
+  if (!sel) continue;
+  _fillResSelect(sel, RES[kind]);
+  sel.addEventListener("change", (e) => {
+    const v = parseInt(e.target.value, 10);
+    RES[kind] = v;
+    localStorage.setItem(`gemma4.res.${kind}`, String(v));
+    if (kind === "vision") FRAME_SIZE = v;
     // Invalidate reusable capture canvas so it re-sizes to the new dims.
     _captureCanvas.canvas = null;
     _captureCanvas.cw = 0;
@@ -807,7 +834,7 @@ async function liveDescribe() {
   liveBusy = true;
   const t0 = performance.now();
   try {
-    const b = await captureFrame(FRAME_SIZE, 0.65);
+    const b = await captureFrame(RES.vision, 0.65);
     if (!b) return;
     const prompt = (livePromptEl.value || "").trim() || DEFAULT_LIVE_PROMPT;
     const res = await fetch("/chat", {
@@ -1224,7 +1251,7 @@ async function trackOnce() {
   const myToken = trackToken;
   trackBusy = true;
   try {
-    const b = await captureFrame(FRAME_SIZE, 0.7);
+    const b = await captureFrame(RES.detect, 0.7);
     if (!b) return;
     const res = await fetch("/detect", {
       method: "POST",
@@ -1233,7 +1260,7 @@ async function trackOnce() {
         image: b,
         prompt,
         masks: masksOn,
-        imgsz: FRAME_SIZE,
+        imgsz: RES.detect,
         track: true,
       }),
     });
@@ -1425,7 +1452,7 @@ async function scanOnce() {
   scanBtn.disabled = true;
   scanBtn.classList.add("busy");
   try {
-    const b = await captureFrame(FRAME_SIZE, 0.8);
+    const b = await captureFrame(RES.vision, 0.8);
     if (!b) return;
     const res = await fetch("/scan", {
       method: "POST",
@@ -1781,7 +1808,7 @@ async function poseTick() {
   const myToken = poseToken;
   poseBusy = true;
   try {
-    const b = await captureFrame(FRAME_SIZE, 0.75);
+    const b = await captureFrame(RES.detect, 0.75);
     if (!b) return;
     const res = await fetch("/pose", {
       method: "POST",
@@ -1827,7 +1854,7 @@ async function faceTick() {
   const myToken = faceToken;
   faceBusy = true;
   try {
-    const b = await captureFrame(FRAME_SIZE, 0.75);
+    const b = await captureFrame(RES.detect, 0.75);
     if (!b) return;
     const res = await fetch("/face", {
       method: "POST",
@@ -1880,7 +1907,7 @@ async function peopleTick() {
   const myToken = peopleToken;
   peopleBusy = true;
   try {
-    const b = await captureFrame(FRAME_SIZE, 0.75);
+    const b = await captureFrame(RES.segment, 0.75);
     if (!b) return;
     const res = await fetch("/segment-people", {
       method: "POST",
@@ -1931,7 +1958,7 @@ async function bgsubTick() {
   const myToken = bgsubToken;
   bgsubBusy = true;
   try {
-    const b = await captureFrame(FRAME_SIZE, 0.75);
+    const b = await captureFrame(RES.segment, 0.75);
     if (!b) return;
     const res = await fetch("/bg-sub", {
       method: "POST",
@@ -1984,12 +2011,12 @@ async function segallTick() {
   const myToken = segallToken;
   segallBusy = true;
   try {
-    const b = await captureFrame(FRAME_SIZE, 0.7);
+    const b = await captureFrame(RES.segment, 0.7);
     if (!b) return;
     const res = await fetch("/segment-all", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: b, imgsz: FRAME_SIZE }),
+      body: JSON.stringify({ image: b, imgsz: RES.segment }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
