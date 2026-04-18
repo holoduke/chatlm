@@ -1265,11 +1265,12 @@ function _drawHeadPoseCube(ctx, f) {
   const yaw   = (f.yaw   * Math.PI) / 180;
   const pitch = (f.pitch * Math.PI) / 180;
   const roll  = (f.roll  * Math.PI) / 180;
-  // Anchor above the face box so the cube doesn't obscure the mesh.
-  const [x1, y1, x2] = f.box;
+  // Wrap the cube around the head: centre it on the face box and size it
+  // so the unrotated cube just encloses the box.
+  const [x1, y1, x2, y2] = f.box;
   const cx = (x1 + x2) / 2;
-  const cy = Math.max(20, y1 - 55);
-  const size = Math.min(40, (x2 - x1) * 0.4);
+  const cy = (y1 + y2) / 2;
+  const size = Math.max(x2 - x1, y2 - y1) * 0.55;
   const cube = [
     [-1,-1,-1],[ 1,-1,-1],[ 1, 1,-1],[-1, 1,-1],
     [-1,-1, 1],[ 1,-1, 1],[ 1, 1, 1],[-1, 1, 1],
@@ -1303,10 +1304,11 @@ function _drawHeadPoseCube(ctx, f) {
   ctx.fillStyle = "rgba(5,6,11,0.8)";
   const label = `y${f.yaw|0}° p${f.pitch|0}° r${f.roll|0}°`;
   const tw = ctx.measureText(label).width + 6;
-  ctx.fillRect(cx - tw / 2, cy + size + 2, tw, 14);
+  const labelY = Math.min(ctx.canvas.height - 14, y2 + 4);
+  ctx.fillRect(cx - tw / 2, labelY, tw, 14);
   ctx.fillStyle = "#00f0ff";
   ctx.textAlign = "center";
-  ctx.fillText(label, cx, cy + size + 12);
+  ctx.fillText(label, cx, labelY + 10);
   ctx.textAlign = "start";
 }
 
@@ -1354,8 +1356,21 @@ function _drawFaceOn(ctx, data) {
       ctx.fillText(label, x1 + 5, Math.max(y1 - 6, 16));
       ctx.shadowBlur = 0;
     }
-    _drawHeadPoseCube(ctx, f);
+    if (cubeOn) _drawHeadPoseCube(ctx, f);
   }
+}
+
+let cubeOn = localStorage.getItem("gemma4.cube") === "1";
+const cubeBtnEl = document.getElementById("btn-cube");
+if (cubeBtnEl) {
+  cubeBtnEl.setAttribute("aria-pressed", cubeOn ? "true" : "false");
+  cubeBtnEl.addEventListener("click", () => {
+    cubeOn = !cubeOn;
+    cubeBtnEl.setAttribute("aria-pressed", cubeOn ? "true" : "false");
+    localStorage.setItem("gemma4.cube", cubeOn ? "1" : "0");
+    if (cubeOn && !faceTimer && camStream) startFace();
+    drawOverlay();
+  });
 }
 
 function drawDetections(result) {
