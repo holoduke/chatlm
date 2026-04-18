@@ -2146,6 +2146,97 @@ function stopAnime() {
 }
 animeBtnEl.addEventListener("click", () => (animeTimer ? stopAnime() : startAnime()));
 
+/* ---------- AVATAR (canvas cartoon face driven by head-pose + face mesh) ---------- */
+let avatarOn = false;
+const avatarBtnEl = document.getElementById("btn-avatar");
+
+function _mouthOpenness(landmarks) {
+  // MediaPipe face mesh indices for upper-lip (13) and lower-lip (14) inner centre.
+  if (!landmarks || landmarks.length < 468) return 0;
+  const up = landmarks[13];
+  const lo = landmarks[14];
+  const left = landmarks[61], right = landmarks[291];
+  const mouthHeight = Math.abs(lo[1] - up[1]);
+  const mouthWidth = Math.abs(right[0] - left[0]) || 1;
+  return Math.min(1, mouthHeight / (mouthWidth * 0.45));
+}
+
+function _drawAvatar(ctx, f, w, h) {
+  const yaw = ((f.yaw ?? 0) * Math.PI) / 180;
+  const pitch = ((f.pitch ?? 0) * Math.PI) / 180;
+  const roll = ((f.roll ?? 0) * Math.PI) / 180;
+  const [x1, y1, x2, y2] = f.box;
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+  const r = Math.max(30, (x2 - x1) * 0.55);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(roll);
+  // squash horizontally by yaw, vertically by pitch (cheap pseudo-3D)
+  ctx.scale(Math.cos(yaw) * 0.85 + 0.15, Math.cos(pitch) * 0.85 + 0.15);
+
+  // Face
+  const grad = ctx.createRadialGradient(0, -r * 0.1, r * 0.2, 0, 0, r);
+  grad.addColorStop(0, "#ffe6c7");
+  grad.addColorStop(1, "#e0b080");
+  ctx.fillStyle = grad;
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 0.85, r, 0, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.stroke();
+
+  // Eyes — shift horizontally a tiny bit with yaw so gaze tracks head
+  const eyeOffX = -Math.sin(yaw) * 6;
+  const eyeOffY = -Math.sin(pitch) * 6;
+  for (const side of [-1, 1]) {
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(side * r * 0.32, -r * 0.1, r * 0.15, r * 0.18, 0, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#2b1a0a";
+    ctx.beginPath();
+    ctx.arc(side * r * 0.32 + eyeOffX, -r * 0.1 + eyeOffY, r * 0.06, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  // Mouth — opens in proportion to lip separation
+  const mouthOpen = _mouthOpenness(f.landmarks);
+  const mh = r * 0.05 + mouthOpen * r * 0.35;
+  const mw = r * 0.3;
+  ctx.fillStyle = "#9a2c3a";
+  ctx.strokeStyle = "#000";
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.4, mw, mh, 0, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Hook avatar into the face draw pass so it uses the fresh face data per frame.
+const _origDrawFaceOn = _drawFaceOn;
+_drawFaceOn = function patched(ctx, data) {
+  if (avatarOn && data.faces?.length) {
+    for (const f of data.faces) {
+      _drawAvatar(ctx, f, ctx.canvas.width, ctx.canvas.height);
+    }
+    return;  // avatar replaces the mesh when on
+  }
+  _origDrawFaceOn(ctx, data);
+};
+
+avatarBtnEl.addEventListener("click", () => {
+  avatarOn = !avatarOn;
+  avatarBtnEl.setAttribute("aria-pressed", avatarOn ? "true" : "false");
+  // Avatar depends on face mesh + head pose — auto-start FACE if user hasn't.
+  if (avatarOn && !faceTimer && camStream) startFace();
+  drawOverlay();
+});
+
 /* ---------- live SEGMENT-all loop (FastSAM auto, when TRACK is off) ---------- */
 let segallTimer = null, segallToken = 0, segallBusy = false;
 
