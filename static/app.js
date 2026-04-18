@@ -1133,6 +1133,56 @@ function _drawPoseOn(ctx, data) {
   }
 }
 
+function _drawHeadPoseCube(ctx, f) {
+  if (f.yaw == null) return;
+  const yaw   = (f.yaw   * Math.PI) / 180;
+  const pitch = (f.pitch * Math.PI) / 180;
+  const roll  = (f.roll  * Math.PI) / 180;
+  // Anchor above the face box so the cube doesn't obscure the mesh.
+  const [x1, y1, x2] = f.box;
+  const cx = (x1 + x2) / 2;
+  const cy = Math.max(20, y1 - 55);
+  const size = Math.min(40, (x2 - x1) * 0.4);
+  const cube = [
+    [-1,-1,-1],[ 1,-1,-1],[ 1, 1,-1],[-1, 1,-1],
+    [-1,-1, 1],[ 1,-1, 1],[ 1, 1, 1],[-1, 1, 1],
+  ].map(([x, y, z]) => [x * size, y * size, z * size]);
+  const edges = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  const sy = Math.sin(yaw),   cy_ = Math.cos(yaw);
+  const sp = Math.sin(pitch), cp = Math.cos(pitch);
+  const sr = Math.sin(roll),  cr = Math.cos(roll);
+  const projected = cube.map(([x, y, z]) => {
+    // Rotate X (pitch) then Y (yaw) then Z (roll).
+    let y1 = y * cp - z * sp, z1 = y * sp + z * cp;
+    let x2 = x * cy_ + z1 * sy, z2 = -x * sy + z1 * cy_;
+    let x3 = x2 * cr - y1 * sr, y3 = x2 * sr + y1 * cr;
+    // Orthographic projection + slight perspective.
+    const scale = 1 + z2 / 500;
+    return [cx + x3 * scale, cy + y3 * scale];
+  });
+  ctx.lineWidth = 1.8;
+  ctx.strokeStyle = "#00f0ff";
+  ctx.shadowColor = "#00f0ff";
+  ctx.shadowBlur = 6;
+  for (const [a, b] of edges) {
+    ctx.beginPath();
+    ctx.moveTo(projected[a][0], projected[a][1]);
+    ctx.lineTo(projected[b][0], projected[b][1]);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+  // Numeric readout.
+  ctx.font = "10px 'Share Tech Mono',monospace";
+  ctx.fillStyle = "rgba(5,6,11,0.8)";
+  const label = `y${f.yaw|0}° p${f.pitch|0}° r${f.roll|0}°`;
+  const tw = ctx.measureText(label).width + 6;
+  ctx.fillRect(cx - tw / 2, cy + size + 2, tw, 14);
+  ctx.fillStyle = "#00f0ff";
+  ctx.textAlign = "center";
+  ctx.fillText(label, cx, cy + size + 12);
+  ctx.textAlign = "start";
+}
+
 function _drawFaceOn(ctx, data) {
   if (!data.faces || !data.faces.length) return;
   for (const f of data.faces) {
@@ -1165,17 +1215,19 @@ function _drawFaceOn(ctx, data) {
     const parts = [];
     if (f.id != null) parts.push(`#${f.id}`);
     if (f.emotion) parts.push(`${f.emotion.toUpperCase()} ${(f.emotion_score * 100) | 0}%`);
-    if (!parts.length) continue;
-    const [x1, y1] = f.box;
-    const label = parts.join(" ");
-    const tw = ctx.measureText(label).width + 10;
-    ctx.fillStyle = "rgba(5,6,11,0.85)";
-    ctx.fillRect(x1, Math.max(y1 - 22, 0), tw, 22);
-    ctx.fillStyle = "#ff2bd6";
-    ctx.shadowColor = "#ff2bd6";
-    ctx.shadowBlur = 6;
-    ctx.fillText(label, x1 + 5, Math.max(y1 - 6, 16));
-    ctx.shadowBlur = 0;
+    if (parts.length) {
+      const [x1, y1] = f.box;
+      const label = parts.join(" ");
+      const tw = ctx.measureText(label).width + 10;
+      ctx.fillStyle = "rgba(5,6,11,0.85)";
+      ctx.fillRect(x1, Math.max(y1 - 22, 0), tw, 22);
+      ctx.fillStyle = "#ff2bd6";
+      ctx.shadowColor = "#ff2bd6";
+      ctx.shadowBlur = 6;
+      ctx.fillText(label, x1 + 5, Math.max(y1 - 6, 16));
+      ctx.shadowBlur = 0;
+    }
+    _drawHeadPoseCube(ctx, f);
   }
 }
 
@@ -1859,7 +1911,7 @@ async function faceTick() {
     const res = await fetch("/face", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: b, emotion: true }),
+      body: JSON.stringify({ image: b, emotion: true, head_pose: true }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();

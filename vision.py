@@ -315,7 +315,58 @@ def _assign_face_ids(faces: list[dict]) -> None:
     _face_id_state["tracks"] = new_tracks
 
 
-def face_mesh(image_b64: str, emotion: bool = False) -> dict:
+def _head_pose_from_landmarks(lms: list[list[float]], w: int, h: int) -> dict | None:
+    """Estimate yaw/pitch/roll (degrees) from a MediaPipe 468-landmark mesh
+    using classical solvePnP against a canonical 3D face model.
+    Returns {'yaw', 'pitch', 'roll', 'translation_cm'}."""
+    if len(lms) < 468:
+        return None
+    # 6 canonical 3D model points (millimetres) — matches common references.
+    model_pts = np.array([
+        [0.0,    0.0,    0.0],    # nose tip (index 1)
+        [0.0,   -63.6,  -12.5],   # chin (152)
+        [-43.3,  32.7,  -26.0],   # left eye outer corner (33)
+        [43.3,   32.7,  -26.0],   # right eye outer corner (263)
+        [-28.9, -28.9,  -24.1],   # left mouth corner (61)
+        [28.9,  -28.9,  -24.1],   # right mouth corner (291)
+    ], dtype=np.float64)
+    indices = [1, 152, 33, 263, 61, 291]
+    image_pts = np.array([lms[i] for i in indices], dtype=np.float64)
+
+    focal = float(w)
+    center = (w / 2.0, h / 2.0)
+    camera_matrix = np.array([
+        [focal, 0,     center[0]],
+        [0,     focal, center[1]],
+        [0,     0,     1],
+    ], dtype=np.float64)
+    dist = np.zeros((4, 1))
+    ok, rvec, tvec = cv2.solvePnP(
+        model_pts, image_pts, camera_matrix, dist,
+        flags=cv2.SOLVEPNP_ITERATIVE,
+    )
+    if not ok:
+        return None
+    rmat, _ = cv2.Rodrigues(rvec)
+    # Decompose rotation matrix → Euler angles (yaw=Y, pitch=X, roll=Z).
+    sy = float(np.sqrt(rmat[0, 0] ** 2 + rmat[1, 0] ** 2))
+    if sy > 1e-6:
+        pitch = np.arctan2(rmat[2, 1], rmat[2, 2])
+        yaw = np.arctan2(-rmat[2, 0], sy)
+        roll = np.arctan2(rmat[1, 0], rmat[0, 0])
+    else:
+        pitch = np.arctan2(-rmat[1, 2], rmat[1, 1])
+        yaw = np.arctan2(-rmat[2, 0], sy)
+        roll = 0.0
+    return {
+        "yaw":   round(float(np.degrees(yaw)),   1),
+        "pitch": round(float(np.degrees(pitch)), 1),
+        "roll":  round(float(np.degrees(roll)),  1),
+        "translation_cm": [round(float(v) / 10.0, 1) for v in tvec.flatten()],
+    }
+
+
+def face_mesh(image_b64: str, emotion: bool = False, head_pose: bool = False) -> dict:
     import mediapipe as mp
 
     detector = _ensure_face_mesh()
@@ -334,10 +385,15 @@ def face_mesh(image_b64: str, emotion: bool = False) -> dict:
         pts = [[lm.x * w, lm.y * h] for lm in fl]
         xs = [p[0] for p in pts]
         ys = [p[1] for p in pts]
-        faces.append({
+        face_entry = {
             "landmarks": [[round(x, 1), round(y, 1)] for x, y in pts],
             "box": [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
-        })
+        }
+        if head_pose:
+            hp = _head_pose_from_landmarks(pts, w, h)
+            if hp:
+                face_entry.update(hp)
+        faces.append(face_entry)
 
     # Cross-frame IDs via simple IoU greedy match.
     _assign_face_ids(faces)

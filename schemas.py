@@ -113,6 +113,7 @@ class ImageOnlyRequest(BaseModel):
 class FaceRequest(BaseModel):
     image: str = Field(..., description="Base64 JPEG/PNG")
     emotion: bool = Field(False, description="Run emotion classifier on each face (adds ~50-100ms per face)")
+    head_pose: bool = Field(False, description="Estimate yaw/pitch/roll via solvePnP against a canonical face model")
 
 
 class OcrResponse(BaseModel):

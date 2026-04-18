@@ -631,7 +631,7 @@ async def segment_all_endpoint(request: SegmentAllRequest) -> SegmentAllResponse
 async def face_endpoint(request: FaceRequest) -> FaceMeshResponse:
     import vision
     try:
-        res = await asyncio.to_thread(vision.face_mesh, request.image, request.emotion)
+        res = await asyncio.to_thread(vision.face_mesh, request.image, request.emotion, request.head_pose)
     except Exception as err:
         log.error(f"/face !! {err}")
         raise HTTPException(status_code=500, detail=str(err)) from err
