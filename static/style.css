@@ -172,6 +172,11 @@ body.mode-chat .cam-video-panel,
 body.mode-chat .cam-view,
 body.mode-chat .cam-feed-panel { display: none; }
 
+/* In chat mode, vision/detect/segment/inpaint are irrelevant —
+   keep only EMMA (the chat model) and hide the resolution row. */
+body.mode-chat .bar-line-res { display: none; }
+body.mode-chat .model-selects > .model-select:not(:first-child) { display: none; }
+
 /* ---------- VIDEO MODE ---------- */
 body.mode-video .frame {
   grid-template-columns: 300px 1fr 340px;
