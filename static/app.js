@@ -8,6 +8,29 @@ const modelEl = document.getElementById("model-name");
 
 const history = [];
 const pending = { images: [] }; // base64 images queued for next send
+
+/* ---------- theme cycling ---------- */
+const THEMES = ["cyberpunk", "light", "dark", "ice", "matrix"];
+const THEME_LABEL = { cyberpunk: "◐", light: "☀", dark: "☾", ice: "❄", matrix: "▣" };
+function applyTheme(name) {
+  const root = document.documentElement;
+  for (const t of THEMES) if (t !== "cyberpunk") root.classList.remove("theme-" + t);
+  if (name !== "cyberpunk") root.classList.add("theme-" + name);
+  const btn = document.getElementById("theme-btn");
+  if (btn) {
+    btn.textContent = THEME_LABEL[name] || "◐";
+    btn.title = `Theme: ${name} (click to cycle)`;
+  }
+}
+const savedTheme = localStorage.getItem("gemma4.theme") || "cyberpunk";
+applyTheme(THEMES.includes(savedTheme) ? savedTheme : "cyberpunk");
+document.getElementById("theme-btn")?.addEventListener("click", () => {
+  const cur = localStorage.getItem("gemma4.theme") || "cyberpunk";
+  const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
+  localStorage.setItem("gemma4.theme", next);
+  applyTheme(next);
+});
+
 const thinkEl = document.getElementById("think-toggle");
 let thinkOn = localStorage.getItem("gemma4.think") === "1";
 function applyThink() {

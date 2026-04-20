@@ -11,6 +11,13 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/style.css" />
+    <script>
+      // Apply saved theme before CSS paints to avoid a flash.
+      (function () {
+        var t = localStorage.getItem("gemma4.theme");
+        if (t && t !== "cyberpunk") document.documentElement.classList.add("theme-" + t);
+      })();
+    </script>
   </head>
   <body>
     <div class="scanlines" aria-hidden="true"></div>
@@ -40,6 +47,7 @@
             <span class="toggle-dot"></span><span>TOOLS</span>
           </button>
           <button type="button" id="clear" class="clear" title="Purge / clear feed">PURGE</button>
+          <button type="button" id="theme-btn" class="theme-btn" title="Cycle theme">◐</button>
         </div>
         <div class="bar-line bar-line-selects">
           <div class="model-selects">

@@ -10,6 +10,86 @@
   --text: #d8e6ff;
   --text-dim: #6b7a9a;
   --danger: #ff2b6b;
+  --glow-a: rgba(255, 43, 214, 0.12);
+  --glow-b: rgba(0, 240, 255, 0.12);
+  --scanline-alpha: 0.18;
+  --noise-alpha: 0.05;
+}
+
+/* ---- Theme: LIGHT (clean paper / slate accents) ---- */
+html.theme-light {
+  --bg: #f2f4f9;
+  --bg-grid: #e2e6ef;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-edge: rgba(60, 80, 140, 0.22);
+  --cyan: #0077aa;
+  --magenta: #c8168a;
+  --amber: #b06a00;
+  --green: #1e8a3a;
+  --text: #17202a;
+  --text-dim: #6a7a90;
+  --danger: #c7264b;
+  --glow-a: rgba(200, 22, 138, 0.07);
+  --glow-b: rgba(0, 119, 170, 0.07);
+  --scanline-alpha: 0;
+  --noise-alpha: 0;
+}
+
+/* ---- Theme: DARK (neutral, no neon) ---- */
+html.theme-dark {
+  --bg: #111418;
+  --bg-grid: #1a1e24;
+  --panel: rgba(26, 30, 36, 0.85);
+  --panel-edge: rgba(200, 210, 225, 0.15);
+  --cyan: #7ec7d8;
+  --magenta: #d79bd1;
+  --amber: #e0b268;
+  --green: #9ad19a;
+  --text: #d7dde5;
+  --text-dim: #8a94a4;
+  --danger: #e06a7a;
+  --glow-a: rgba(215, 155, 209, 0.05);
+  --glow-b: rgba(126, 199, 216, 0.05);
+  --scanline-alpha: 0.06;
+  --noise-alpha: 0.02;
+}
+
+/* ---- Theme: ICE (slick ice blue) ---- */
+html.theme-ice {
+  --bg: #0b1a24;
+  --bg-grid: #112a3a;
+  --panel: rgba(18, 40, 58, 0.72);
+  --panel-edge: rgba(160, 220, 255, 0.28);
+  --cyan: #9fe6ff;
+  --magenta: #6fd6ff;
+  --amber: #c4eaff;
+  --green: #a4f4d8;
+  --text: #e4f4ff;
+  --text-dim: #8ab0c8;
+  --danger: #ff9fc0;
+  --glow-a: rgba(159, 230, 255, 0.14);
+  --glow-b: rgba(120, 200, 255, 0.10);
+  --scanline-alpha: 0.10;
+  --noise-alpha: 0.03;
+}
+
+/* ---- Theme: MATRIX (green phosphor terminal) ---- */
+html.theme-matrix {
+  --bg: #000806;
+  --bg-grid: #031a10;
+  --panel: rgba(5, 20, 14, 0.78);
+  --panel-edge: rgba(80, 255, 140, 0.30);
+  --cyan: #39ff88;
+  --magenta: #b7ff39;
+  --amber: #eaff8c;
+  --green: #39ff14;
+  --text: #baffbe;
+  --text-dim: #5f9a6a;
+  --danger: #ff6a6a;
+  --glow-a: rgba(57, 255, 20, 0.10);
+  --glow-b: rgba(57, 255, 136, 0.08);
+  --scanline-alpha: 0.25;
+  --noise-alpha: 0.06;
 }
 
 * {
@@ -29,8 +109,8 @@ body {
 
 body {
   background:
-    radial-gradient(ellipse at 20% 10%, rgba(255, 43, 214, 0.12), transparent 55%),
-    radial-gradient(ellipse at 80% 90%, rgba(0, 240, 255, 0.12), transparent 55%),
+    radial-gradient(ellipse at 20% 10%, var(--glow-a), transparent 55%),
+    radial-gradient(ellipse at 80% 90%, var(--glow-b), transparent 55%),
     linear-gradient(var(--bg-grid) 1px, transparent 1px) 0 0 / 40px 40px,
     linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px) 0 0 / 40px 40px,
     var(--bg);
@@ -44,7 +124,7 @@ body {
     to bottom,
     rgba(0, 0, 0, 0) 0,
     rgba(0, 0, 0, 0) 2px,
-    rgba(0, 0, 0, 0.18) 3px,
+    rgba(0, 0, 0, var(--scanline-alpha)) 3px,
     rgba(0, 0, 0, 0) 4px
   );
   mix-blend-mode: multiply;
@@ -55,7 +135,7 @@ body {
   pointer-events: none;
   position: fixed;
   inset: 0;
-  opacity: 0.05;
+  opacity: var(--noise-alpha);
   z-index: 49;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
 }
@@ -429,6 +509,29 @@ body.mode-video .bar-mini { width: 24px; }
   text-shadow: none;
 }
 .clear:active { transform: translateY(1px); }
+
+.theme-btn {
+  background: transparent;
+  color: var(--cyan);
+  border: 1px solid var(--panel-edge);
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.theme-btn:hover {
+  background: var(--panel);
+  box-shadow: 0 0 10px var(--glow-b);
+  color: var(--text);
+}
+.theme-btn:active { transform: translateY(1px); }
 
 .log {
   overflow-y: auto;
