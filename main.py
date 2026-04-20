@@ -427,13 +427,25 @@ async def list_models_endpoint() -> dict:
     }
 
 
+async def _validate_chat_model(name: str) -> None:
+    """Cheap existence check — avoids warming a multi-GB model on dropdown
+    change (that was blocking the UI for tens of seconds)."""
+    if mlx_client.is_mlx_name(name):
+        if name not in mlx_client.MLX_MODELS:
+            raise HTTPException(status_code=400, detail=f"unknown MLX model '{name}'")
+        return
+    try:
+        tags = await client.list_models()
+    except Exception as err:
+        raise HTTPException(status_code=502, detail=f"ollama unreachable: {err}") from err
+    names = {m.get("name") for m in tags.get("models", [])}
+    if name not in names:
+        raise HTTPException(status_code=400, detail=f"model '{name}' not installed on Ollama")
+
+
 @app.post("/models/emma")
 async def set_emma(req: SetModelRequest) -> dict:
-    backend = _dispatch(req.name)
-    try:
-        await backend.generate(model=req.name, prompt="ok", temperature=0.0, max_tokens=1)
-    except Exception as err:
-        raise HTTPException(status_code=400, detail=f"model '{req.name}' unavailable: {err}") from err
+    await _validate_chat_model(req.name)
     _STATE["emma"] = req.name
     log.info(f"/models/emma -> {req.name}")
     return {"current": _STATE["emma"]}
@@ -441,11 +453,7 @@ async def set_emma(req: SetModelRequest) -> dict:
 
 @app.post("/models/scan")
 async def set_scan(req: SetModelRequest) -> dict:
-    backend = _dispatch(req.name)
-    try:
-        await backend.generate(model=req.name, prompt="ok", temperature=0.0, max_tokens=1)
-    except Exception as err:
-        raise HTTPException(status_code=400, detail=f"model '{req.name}' unavailable: {err}") from err
+    await _validate_chat_model(req.name)
     _STATE["scan"] = req.name
     log.info(f"/models/scan -> {req.name}")
     return {"current": _STATE["scan"]}
