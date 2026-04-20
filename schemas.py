@@ -15,7 +15,7 @@ class ChatRequest(BaseModel):
     messages: list[Message] = Field(..., min_length=1)
     model: str | None = None
     temperature: float = Field(0.7, ge=0.0, le=2.0)
-    max_tokens: int | None = Field(None, ge=1, le=8192)
+    max_tokens: int | None = Field(None, ge=1, le=131072)
     stream: bool = False
     think: bool = False
     tools: list[dict[str, Any]] | None = None
@@ -256,7 +256,7 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     model: str | None = None
     temperature: float = Field(0.7, ge=0.0, le=2.0)
-    max_tokens: int | None = Field(None, ge=1, le=8192)
+    max_tokens: int | None = Field(None, ge=1, le=131072)
 
 
 class GenerateResponse(BaseModel):

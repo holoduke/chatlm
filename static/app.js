@@ -245,7 +245,9 @@ setInterval(pollStats, 2000);
 pollStats();
 
 // Cap generation per turn so a misbehaving model can't churn indefinitely.
-const CHAT_MAX_TOKENS = 4096;
+// Gemma 4's context window is 128K. Send the full ceiling so the model
+// stops on EOS (natural end), not on an arbitrary length cap.
+const CHAT_MAX_TOKENS = 131072;
 // Keep history bounded: system/user pairs beyond this are dropped oldest-first.
 const HISTORY_MAX_MESSAGES = 40;
 
