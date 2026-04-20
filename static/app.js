@@ -504,7 +504,10 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let recordStream = null;
 
+let recordStarting = false;
 async function startRecording() {
+  if (recordStarting || (mediaRecorder && mediaRecorder.state === "recording")) return;
+  recordStarting = true;
   try {
     recordStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     recordedChunks = [];
@@ -578,21 +581,31 @@ async function startRecording() {
     micBtn.textContent = "●";
   } catch (err) {
     alert(`mic failed: ${err.message}`);
+    if (recordStream) {
+      recordStream.getTracks().forEach((t) => t.stop());
+      recordStream = null;
+    }
+    mediaRecorder = null;
+    micBtn.classList.remove("recording");
+    micBtn.textContent = "🎤";
+  } finally {
+    recordStarting = false;
   }
 }
 
 function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+  if (mediaRecorder && mediaRecorder.state === "recording") {
     mediaRecorder.stop();
     mediaRecorder = null;
   }
 }
 
-micBtn.addEventListener("mousedown", startRecording);
-micBtn.addEventListener("touchstart", startRecording, { passive: true });
-micBtn.addEventListener("mouseup", stopRecording);
-micBtn.addEventListener("mouseleave", stopRecording);
-micBtn.addEventListener("touchend", stopRecording);
+// Click-to-toggle: first click starts, second click stops. Much more reliable
+// than hold-to-record because awaiting getUserMedia can outlast a quick click.
+micBtn.addEventListener("click", () => {
+  if (mediaRecorder && mediaRecorder.state === "recording") stopRecording();
+  else startRecording();
+});
 
 /* ---------- Voice clone (F5-TTS) — hold to record 8-15s, then SPEAK uses your voice ---------- */
 const cloneBtn = document.getElementById("clone-btn");
