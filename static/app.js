@@ -25,12 +25,12 @@ function applyTheme(name) {
   console.info("[theme] applied", name);
 }
 function cycleTheme() {
-  const cur = localStorage.getItem("gemma4.theme") || "cyberpunk";
+  const cur = localStorage.getItem("chatlm.theme") || "cyberpunk";
   const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
-  localStorage.setItem("gemma4.theme", next);
+  localStorage.setItem("chatlm.theme", next);
   applyTheme(next);
 }
-applyTheme(localStorage.getItem("gemma4.theme") || "cyberpunk");
+applyTheme(localStorage.getItem("chatlm.theme") || "cyberpunk");
 // Delegated click so it works even if wiring runs before the button mounts
 // or if some other listener swallows the event on the button itself.
 document.addEventListener("click", (e) => {
@@ -38,7 +38,7 @@ document.addEventListener("click", (e) => {
 });
 
 const thinkEl = document.getElementById("think-toggle");
-let thinkOn = localStorage.getItem("gemma4.think") === "1";
+let thinkOn = localStorage.getItem("chatlm.think") === "1";
 function applyThink() {
   thinkEl.setAttribute("aria-pressed", thinkOn ? "true" : "false");
   const s = document.getElementById("s-think");
@@ -46,20 +46,20 @@ function applyThink() {
 }
 thinkEl.addEventListener("click", () => {
   thinkOn = !thinkOn;
-  localStorage.setItem("gemma4.think", thinkOn ? "1" : "0");
+  localStorage.setItem("chatlm.think", thinkOn ? "1" : "0");
   applyThink();
 });
 applyThink();
 
 /* ---------- tool use ---------- */
 const toolsEl = document.getElementById("tools-toggle");
-let toolsOn = localStorage.getItem("gemma4.tools") === "1";
+let toolsOn = localStorage.getItem("chatlm.tools") === "1";
 function applyTools() {
   toolsEl.setAttribute("aria-pressed", toolsOn ? "true" : "false");
 }
 toolsEl.addEventListener("click", () => {
   toolsOn = !toolsOn;
-  localStorage.setItem("gemma4.tools", toolsOn ? "1" : "0");
+  localStorage.setItem("chatlm.tools", toolsOn ? "1" : "0");
   applyTools();
 });
 applyTools();
@@ -166,7 +166,7 @@ function addMessage(who, text, opts = {}) {
   wrap.className = `msg ${who}`;
   const label = document.createElement("div");
   label.className = "who";
-  label.textContent = who === "user" ? "> USER" : who === "bot" ? "// GEMMA" : "// SYS";
+  label.textContent = who === "user" ? "> USER" : who === "bot" ? "// CHATLM" : "// SYS";
   const body = document.createElement("div");
   body.className = "body";
   if (opts.images && opts.images.length) {
@@ -801,14 +801,14 @@ let scanBusy = false;
 let scanToken = 0;
 
 // Restore saved interval
-const savedInterval = localStorage.getItem("gemma4.interval");
+const savedInterval = localStorage.getItem("chatlm.interval");
 if (savedInterval) {
   camInterval.value = savedInterval;
   camIntervalVal.textContent = `${savedInterval}s`;
 }
 camInterval.addEventListener("input", () => {
   camIntervalVal.textContent = `${camInterval.value}s`;
-  localStorage.setItem("gemma4.interval", camInterval.value);
+  localStorage.setItem("chatlm.interval", camInterval.value);
   if (liveTimer) restartLive();
 });
 
@@ -864,15 +864,15 @@ function stopCam() {
   camVideo.srcObject = null;
 }
 
-/* Per-pipeline input resolutions. A legacy gemma4.resolution seeds all three
+/* Per-pipeline input resolutions. A legacy chatlm.resolution seeds all three
  * on first load, so existing users keep their preferred value. */
 const RES_OPTIONS = [160, 192, 224, 256, 288, 320, 384, 480, 640, 768];
 const RES_DEFAULTS = { vision: 480, detect: 480, segment: 320 };
-const _legacy = parseInt(localStorage.getItem("gemma4.resolution") || "0", 10);
+const _legacy = parseInt(localStorage.getItem("chatlm.resolution") || "0", 10);
 const RES = {
-  vision:  parseInt(localStorage.getItem("gemma4.res.vision")  || (_legacy || RES_DEFAULTS.vision),  10),
-  detect:  parseInt(localStorage.getItem("gemma4.res.detect")  || (_legacy || RES_DEFAULTS.detect),  10),
-  segment: parseInt(localStorage.getItem("gemma4.res.segment") || (_legacy || RES_DEFAULTS.segment), 10),
+  vision:  parseInt(localStorage.getItem("chatlm.res.vision")  || (_legacy || RES_DEFAULTS.vision),  10),
+  detect:  parseInt(localStorage.getItem("chatlm.res.detect")  || (_legacy || RES_DEFAULTS.detect),  10),
+  segment: parseInt(localStorage.getItem("chatlm.res.segment") || (_legacy || RES_DEFAULTS.segment), 10),
 };
 // FRAME_SIZE stays as a fallback for code paths that don't pipe a specific
 // resolution through yet (e.g. chat-mode attach + inpaint/generate captures).
@@ -896,7 +896,7 @@ for (const kind of Object.keys(RES_DEFAULTS)) {
   sel.addEventListener("change", (e) => {
     const v = parseInt(e.target.value, 10);
     RES[kind] = v;
-    localStorage.setItem(`gemma4.res.${kind}`, String(v));
+    localStorage.setItem(`chatlm.res.${kind}`, String(v));
     if (kind === "vision") FRAME_SIZE = v;
     // Invalidate reusable capture canvas so it re-sizes to the new dims.
     _captureCanvas.canvas = null;
@@ -989,10 +989,10 @@ function bindPromptField(textareaId, resetId, storageKey, defaultValue) {
 }
 
 const livePromptEl = bindPromptField(
-  "live-prompt", "live-prompt-reset", "gemma4.livePrompt", DEFAULT_LIVE_PROMPT,
+  "live-prompt", "live-prompt-reset", "chatlm.livePrompt", DEFAULT_LIVE_PROMPT,
 );
 const scanPromptEl = bindPromptField(
-  "scan-prompt", "scan-prompt-reset", "gemma4.scanPrompt", DEFAULT_SCAN_PROMPT,
+  "scan-prompt", "scan-prompt-reset", "chatlm.scanPrompt", DEFAULT_SCAN_PROMPT,
 );
 
 async function liveDescribe() {
@@ -1075,7 +1075,7 @@ let trackBusy = false;
 // User-intent flag: when true, AUTO scan will not auto-restart TRACK. Cleared
 // when the user explicitly clicks TRACK on again.
 let trackUserDisabled = false;
-let masksOn = localStorage.getItem("gemma4.masks") === "1";
+let masksOn = localStorage.getItem("chatlm.masks") === "1";
 masksToggle.setAttribute("aria-pressed", masksOn ? "true" : "false");
 function reconcileSegmentMode() {
   // SEGMENT on + TRACK on  -> masks applied to TRACK detections (in track loop)
@@ -1089,7 +1089,7 @@ function reconcileSegmentMode() {
 }
 masksToggle.addEventListener("click", () => {
   masksOn = !masksOn;
-  localStorage.setItem("gemma4.masks", masksOn ? "1" : "0");
+  localStorage.setItem("chatlm.masks", masksOn ? "1" : "0");
   masksToggle.setAttribute("aria-pressed", masksOn ? "true" : "false");
   reconcileSegmentMode();
 });
@@ -1407,14 +1407,14 @@ function _drawFaceOn(ctx, data) {
   }
 }
 
-let cubeOn = localStorage.getItem("gemma4.cube") === "1";
+let cubeOn = localStorage.getItem("chatlm.cube") === "1";
 const cubeBtnEl = document.getElementById("btn-cube");
 if (cubeBtnEl) {
   cubeBtnEl.setAttribute("aria-pressed", cubeOn ? "true" : "false");
   cubeBtnEl.addEventListener("click", () => {
     cubeOn = !cubeOn;
     cubeBtnEl.setAttribute("aria-pressed", cubeOn ? "true" : "false");
-    localStorage.setItem("gemma4.cube", cubeOn ? "1" : "0");
+    localStorage.setItem("chatlm.cube", cubeOn ? "1" : "0");
     if (cubeOn && !faceTimer && camStream) startFace();
     drawOverlay();
   });
@@ -1605,10 +1605,10 @@ let autoTrackPrimed = false;
 // Tags the user added manually — kept across AUTO scans and never purged by
 // the "drop stale selections" logic below.
 const customTags = new Set(
-  JSON.parse(localStorage.getItem("gemma4.customTags") || "[]"),
+  JSON.parse(localStorage.getItem("chatlm.customTags") || "[]"),
 );
 function persistCustomTags() {
-  localStorage.setItem("gemma4.customTags", JSON.stringify([...customTags]));
+  localStorage.setItem("chatlm.customTags", JSON.stringify([...customTags]));
 }
 
 function makeChip(tag, opts = {}) {
@@ -1871,12 +1871,12 @@ const genInput = document.getElementById("gen-input");
 const genBtn = document.getElementById("gen-btn");
 const genStrength = document.getElementById("gen-strength");
 const genStrengthVal = document.getElementById("gen-strength-val");
-const savedStrength = localStorage.getItem("gemma4.genStrength");
+const savedStrength = localStorage.getItem("chatlm.genStrength");
 if (savedStrength) genStrength.value = savedStrength;
 genStrengthVal.textContent = parseFloat(genStrength.value).toFixed(2);
 genStrength.addEventListener("input", () => {
   genStrengthVal.textContent = parseFloat(genStrength.value).toFixed(2);
-  localStorage.setItem("gemma4.genStrength", genStrength.value);
+  localStorage.setItem("chatlm.genStrength", genStrength.value);
 });
 
 async function runGenerate() {
@@ -2561,7 +2561,7 @@ async function setMode(mode) {
   document.querySelectorAll(".mode-btn").forEach((b) => {
     b.setAttribute("aria-pressed", b.dataset.mode === m ? "true" : "false");
   });
-  localStorage.setItem("gemma4.mode", m);
+  localStorage.setItem("chatlm.mode", m);
   if (m === "video") {
     await startCam();
     if (!camStream) return;
@@ -2625,12 +2625,12 @@ function fillOllamaSelect(sel, models, current) {
 }
 
 const STORAGE = {
-  emma: "gemma4.model.emma",
-  scan: "gemma4.model.scan",
-  detector: "gemma4.model.detector",
-  segmenter: "gemma4.model.segmenter",
-  inpaint: "gemma4.model.inpaint",
-  interval: "gemma4.interval",
+  emma: "chatlm.model.emma",
+  scan: "chatlm.model.scan",
+  detector: "chatlm.model.detector",
+  segmenter: "chatlm.model.segmenter",
+  inpaint: "chatlm.model.inpaint",
+  interval: "chatlm.interval",
 };
 
 function fillPresetSelect(sel, presets, current) {
@@ -2728,5 +2728,5 @@ selInpaint.addEventListener("change", (e) =>
 addMessage("sys", "Neural link established. Gemma-4 online. Transmit query below.");
 loadHealth();
 refreshModels();
-setMode(localStorage.getItem("gemma4.mode") || "chat");
+setMode(localStorage.getItem("chatlm.mode") || "chat");
 if (document.body.classList.contains("mode-chat")) inputEl.focus();

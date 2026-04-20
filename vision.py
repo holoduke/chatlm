@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-log = logging.getLogger("gemma4.vision")
+log = logging.getLogger("chatlm.vision")
 
 _lock = threading.Lock()
 _pose_model: Any = None

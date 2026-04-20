@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-log = logging.getLogger("gemma4.audio")
+log = logging.getLogger("chatlm.audio")
 
 _whisper_ready: bool = False
 _whisper_model_id: str = "mlx-community/whisper-small.en-mlx"  # ~150MB, fast

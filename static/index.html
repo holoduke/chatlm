@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>GEMMA//4 — NEURAL LINK</title>
+    <title>CHATLM — NEURAL LINK</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -12,9 +12,23 @@
     />
     <link rel="stylesheet" href="/static/style.css" />
     <script>
-      // Apply saved theme before CSS paints to avoid a flash.
+      // One-time migration of legacy "gemma4.*" localStorage keys to "chatlm.*",
+      // then apply saved theme before CSS paints to avoid a flash.
       (function () {
-        var t = localStorage.getItem("gemma4.theme");
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf("gemma4.") === 0) {
+              var nk = "chatlm." + k.slice(7);
+              if (localStorage.getItem(nk) === null) {
+                localStorage.setItem(nk, localStorage.getItem(k));
+              }
+              localStorage.removeItem(k);
+              i--;
+            }
+          }
+        } catch (_) {}
+        var t = localStorage.getItem("chatlm.theme");
         if (t && t !== "cyberpunk") document.documentElement.classList.add("theme-" + t);
       })();
     </script>
@@ -28,7 +42,7 @@
         <div class="bar-line">
           <div class="logo">
             <span class="logo-bracket">[</span>
-            <span class="logo-text" data-text="GEMMA//4">GEMMA//4</span>
+            <span class="logo-text" data-text="CHATLM">CHATLM</span>
             <span class="logo-bracket">]</span>
           </div>
           <div class="mode-switch" role="tablist" aria-label="mode">

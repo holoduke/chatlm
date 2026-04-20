@@ -30,6 +30,6 @@ def configure() -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(logging.INFO)
-    logging.getLogger("gemma4").setLevel(logging.INFO)
+    logging.getLogger("chatlm").setLevel(logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

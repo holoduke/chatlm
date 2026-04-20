@@ -1,8 +1,8 @@
-# GEMMA//4
+# CHATLM
 
 A local, cyberpunk-themed multimodal playground on Apple Silicon. Chat with Gemma 4, stream your webcam into it, detect and segment objects by name, inpaint regions or restyle the whole frame, hear replies aloud and talk back — all running on your own Mac.
 
-![GEMMA//4 in video mode](docs/screenshot.png)
+![CHATLM in video mode](docs/screenshot.png)
 
 ---
 
@@ -136,8 +136,8 @@ Gemma (or any tool-capable Ollama model, e.g. llama3.2) can request shell comman
 ## Setup
 
 ```bash
-git clone https://github.com/holoduke/gemma4.git
-cd gemma4
+git clone https://github.com/holoduke/chatlm.git
+cd chatlm
 
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt          # MPS wheels on macOS-arm64
