@@ -13,6 +13,7 @@ const pending = { images: [] }; // base64 images queued for next send
 const THEMES = ["cyberpunk", "light", "dark", "ice", "matrix"];
 const THEME_LABEL = { cyberpunk: "◐", light: "☀", dark: "☾", ice: "❄", matrix: "▣" };
 function applyTheme(name) {
+  if (!THEMES.includes(name)) name = "cyberpunk";
   const root = document.documentElement;
   for (const t of THEMES) if (t !== "cyberpunk") root.classList.remove("theme-" + t);
   if (name !== "cyberpunk") root.classList.add("theme-" + name);
@@ -21,14 +22,19 @@ function applyTheme(name) {
     btn.textContent = THEME_LABEL[name] || "◐";
     btn.title = `Theme: ${name} (click to cycle)`;
   }
+  console.info("[theme] applied", name);
 }
-const savedTheme = localStorage.getItem("gemma4.theme") || "cyberpunk";
-applyTheme(THEMES.includes(savedTheme) ? savedTheme : "cyberpunk");
-document.getElementById("theme-btn")?.addEventListener("click", () => {
+function cycleTheme() {
   const cur = localStorage.getItem("gemma4.theme") || "cyberpunk";
   const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
   localStorage.setItem("gemma4.theme", next);
   applyTheme(next);
+}
+applyTheme(localStorage.getItem("gemma4.theme") || "cyberpunk");
+// Delegated click so it works even if wiring runs before the button mounts
+// or if some other listener swallows the event on the button itself.
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.closest && e.target.closest("#theme-btn")) cycleTheme();
 });
 
 const thinkEl = document.getElementById("think-toggle");
