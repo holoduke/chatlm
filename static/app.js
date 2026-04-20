@@ -245,7 +245,7 @@ setInterval(pollStats, 2000);
 pollStats();
 
 // Cap generation per turn so a misbehaving model can't churn indefinitely.
-const CHAT_MAX_TOKENS = 800;
+const CHAT_MAX_TOKENS = 4096;
 // Keep history bounded: system/user pairs beyond this are dropped oldest-first.
 const HISTORY_MAX_MESSAGES = 40;
 
