@@ -17,6 +17,8 @@ from typing import Any
 
 from PIL import Image
 
+from txt2img_presets import SAFETY_HEADROOM_GB, TXT2IMG_PRESETS
+
 log = logging.getLogger("chatlm.txt2img")
 
 # Single-resident cache: keep only one pipeline in unified memory at a time.
@@ -33,59 +35,6 @@ _load_lock = threading.Lock()
 _inference_lock = threading.Lock()
 
 TOTAL_RAM_GB = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9
-
-
-# `weight_gb` is the approximate resident-memory footprint of the loaded
-# pipeline in its working dtype. Used to refuse loads when free unified
-# memory is too low (kernel panic guardrail).
-TXT2IMG_PRESETS: dict[str, dict] = {
-    "sdxl-base": {
-        "label": "SDXL base 1.0 · 25 steps · ~20s",
-        "model_id": "stabilityai/stable-diffusion-xl-base-1.0",
-        "pipeline": "sdxl",
-        "steps": 25,
-        "guidance": 7.0,
-        "width": 1024,
-        "height": 1024,
-        "weight_gb": 14.0,  # fp32 on MPS (fp16 produces NaN black output)
-    },
-    "sdxl-turbo": {
-        "label": "SDXL Turbo · 4 steps · ~4s",
-        "model_id": "stabilityai/sdxl-turbo",
-        "pipeline": "sdxl",
-        "steps": 4,
-        "guidance": 0.0,
-        "width": 512,
-        "height": 512,
-        "weight_gb": 8.0,  # measured peak ~7.5 GB at 512x512 fp32 on M3 Pro
-    },
-    "flux-schnell": {
-        "label": "FLUX.1-schnell · 4 steps · ~20s (gated, accept license on HF)",
-        "model_id": "black-forest-labs/FLUX.1-schnell",
-        "pipeline": "flux",
-        "steps": 4,
-        "guidance": 0.0,
-        "width": 1024,
-        "height": 1024,
-        "weight_gb": 24.0,  # fp16
-    },
-    "sd35-medium": {
-        "label": "SD 3.5 Medium · 28 steps · ~20s (gated, accept license on HF)",
-        "model_id": "stabilityai/stable-diffusion-3.5-medium",
-        "pipeline": "sd3",
-        "steps": 28,
-        "guidance": 4.5,
-        "width": 1024,
-        "height": 1024,
-        "weight_gb": 12.0,  # fp16
-    },
-}
-
-# Reserve memory for the OS, Chrome, FastAPI, etc. on top of model weights.
-# Was 6 GB initially — tuned down to 4 after measuring real footprints.
-# Each preset's weight_gb is the *peak* resident memory we measured, so
-# headroom only needs to cover the rest of the system, not generation spikes.
-SAFETY_HEADROOM_GB = 4.0
 
 
 def _available_gb() -> float:
@@ -131,17 +80,49 @@ def _flush_other_models() -> None:
 
 
 def _device_and_dtype(kind: str = "sdxl"):
+    """Pick (device, dtype) per pipeline kind.
+
+    SDXL (incl. Lightning UNet swap) needs fp32 on MPS — fp16 produces NaN
+    black output even with the fp16-fix VAE. FLUX / FLUX.2 / SD 3.5 are
+    bf16/fp16 stable on MPS and need fp16 to fit in unified memory.
+    """
     import torch
+    sdxl_kinds = {"sdxl", "sdxl-lightning"}
     if torch.backends.mps.is_available():
-        # SDXL (and SDXL turbo) produce NaN black output on MPS fp16 even with
-        # the fp16-fix VAE, so keep SDXL in fp32 on Apple Silicon. FLUX and
-        # SD 3.5 need fp16 to fit in memory and are numerically stable.
-        if kind == "sdxl":
+        if kind in sdxl_kinds:
             return "mps", torch.float32
-        return "mps", torch.float16
+        # bf16 has wider dynamic range; FLUX.2 weights ship bf16-native.
+        return "mps", torch.bfloat16 if kind == "flux2" else torch.float16
     if torch.cuda.is_available():
-        return "cuda", torch.float16
+        return "cuda", torch.bfloat16 if kind == "flux2" else torch.float16
     return "cpu", torch.float32
+
+
+def _build_sdxl_lightning(preset: dict, dtype):
+    """SDXL base 1.0 with the Lightning UNet weights swapped in.
+    Gives 4-step generation at near-SDXL-base fidelity. Scheduler must be
+    EulerDiscreteScheduler with trailing timestep spacing — Lightning was
+    trained for that timestep schedule."""
+    import torch
+    from diffusers import (
+        EulerDiscreteScheduler,
+        StableDiffusionXLPipeline,
+        UNet2DConditionModel,
+    )
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
+
+    base = preset["model_id"]
+    unet = UNet2DConditionModel.from_config(base, subfolder="unet").to(dtype)
+    weight_path = hf_hub_download(preset["lightning_repo"], preset["lightning_unet"])
+    unet.load_state_dict(load_file(weight_path, device="cpu"))
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        base, unet=unet, torch_dtype=dtype, use_safetensors=True
+    )
+    pipe.scheduler = EulerDiscreteScheduler.from_config(
+        pipe.scheduler.config, timestep_spacing="trailing"
+    )
+    return pipe
 
 
 def _build_pipeline(preset_key: str):
@@ -160,9 +141,17 @@ def _build_pipeline(preset_key: str):
             torch_dtype=dtype,
             use_safetensors=True,
         )
+    elif kind == "sdxl-lightning":
+        pipe = _build_sdxl_lightning(preset, dtype)
     elif kind == "flux":
         from diffusers import FluxPipeline
         pipe = FluxPipeline.from_pretrained(model_id, torch_dtype=dtype)
+    elif kind == "flux2":
+        # FLUX.2 ships its own pipeline class in diffusers >=0.34. Import
+        # locally so older diffusers installs don't break import-time of
+        # this module — only fail when someone actually tries to load it.
+        from diffusers import Flux2Pipeline
+        pipe = Flux2Pipeline.from_pretrained(model_id, torch_dtype=dtype)
     elif kind == "sd3":
         from diffusers import StableDiffusion3Pipeline
         pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=dtype)
@@ -263,8 +252,8 @@ def generate_image(
         "width": width or preset["width"],
         "height": height or preset["height"],
     }
-    # negative_prompt is unsupported by FLUX.
-    if preset["pipeline"] != "flux" and negative_prompt:
+    # negative_prompt is unsupported by FLUX.1 and FLUX.2.
+    if preset["pipeline"] not in {"flux", "flux2"} and negative_prompt:
         kwargs["negative_prompt"] = negative_prompt
     if seed is not None:
         import torch
@@ -282,26 +271,34 @@ def generate_image(
 
     log.info(f"/txt2img preset={key} prompt={prompt[:80]!r} steps={total_steps} size={kwargs['width']}x{kwargs['height']}")
     t0 = time.perf_counter()
-    with _inference_lock:
-        result = pipe(**kwargs)
-    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    try:
+        with _inference_lock:
+            result = pipe(**kwargs)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
-    img = result.images[0]
-    out: dict = {
-        "width": img.width,
-        "height": img.height,
-        "preset": key,
-        "steps": kwargs["num_inference_steps"],
-        "latency_ms": elapsed_ms,
-    }
-    if out_path:
-        from pathlib import Path
-        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-        img.save(out_path, format="PNG")
-        out["path"] = out_path
-    else:
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        out["image"] = base64.b64encode(buf.getvalue()).decode("ascii")
-    log.info(f"/txt2img preset={key} done in {elapsed_ms}ms -> {out_path or 'inline-b64'}")
-    return out
+        img = result.images[0]
+        out: dict = {
+            "width": img.width,
+            "height": img.height,
+            "preset": key,
+            "steps": kwargs["num_inference_steps"],
+            "latency_ms": elapsed_ms,
+        }
+        if out_path:
+            from pathlib import Path
+            Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+            img.save(out_path, format="PNG")
+            out["path"] = out_path
+        else:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            out["image"] = base64.b64encode(buf.getvalue()).decode("ascii")
+        log.info(f"/txt2img preset={key} done in {elapsed_ms}ms -> {out_path or 'inline-b64'}")
+        return out
+    finally:
+        # Drop the pipeline so chat/MLX don't fight diffusion for unified
+        # memory between requests. Each generation pays the reload cost
+        # (~10-20s) on its first call; chat stays responsive in between.
+        # Set CHATLM_TXT2IMG_KEEP_RESIDENT=1 to disable for batch workflows.
+        if os.environ.get("CHATLM_TXT2IMG_KEEP_RESIDENT") != "1":
+            evict_if_loaded(reason="post-generation")

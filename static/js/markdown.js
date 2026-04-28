@@ -1,7 +1,9 @@
 /* markdown.js
  * Thin wrapper around marked for rendering bot responses and thinking
- * panels. Local-single-user so we trust the LLM output — no sanitiser
- * added; if that ever changes, wire DOMPurify in here. */
+ * panels. Local-single-user so we trust the LLM output for inline content,
+ * but we strip page-scoped tags (style/link/script/meta/title/base) so an
+ * LLM-emitted HTML page doesn't leak its rules into the host document
+ * and break things like the live-camera overlay. */
 
 import { marked } from "./vendor/marked.esm.js";
 
@@ -20,6 +22,23 @@ marked.setOptions({
  * tab from reaching back via window.opener. */
 function externalizeLinks(html) {
   return html.replace(/<a (?![^>]*\btarget=)([^>]*)>/g, '<a target="_blank" rel="noopener noreferrer" $1>');
+}
+
+/* Strip tags that are valid inside an HTML document but globally affect
+ * the host page when injected via innerHTML. <style> rules apply across
+ * the whole document regardless of where the element sits in the tree;
+ * <link rel=stylesheet> does the same; <script> would execute (well, it
+ * doesn't via innerHTML, but we strip for clarity); <meta>/<title>/<base>
+ * mutate document-level state. Inline `style="..."` attributes stay —
+ * those are scoped per-element. */
+function stripPageScopedTags(html) {
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<link\b[^>]*>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<meta\b[^>]*>/gi, "")
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, "")
+    .replace(/<base\b[^>]*>/gi, "");
 }
 
 /* Wrap any bare http(s) URL in angle brackets so marked's autolink
@@ -42,7 +61,7 @@ function preAutoLink(text) {
 export function renderMarkdown(text) {
   if (!text) return "";
   try {
-    return externalizeLinks(marked.parse(preAutoLink(text)));
+    return externalizeLinks(stripPageScopedTags(marked.parse(preAutoLink(text))));
   } catch (err) {
     // If marked ever chokes on partial input, fall back to the raw text.
     console.warn("[markdown] parse failed, falling back to text", err);
