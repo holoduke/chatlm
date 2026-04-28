@@ -1,8 +1,12 @@
+import asyncio
+import logging
 from typing import AsyncIterator
 
 import httpx
 
 from config import settings
+
+log = logging.getLogger("chatlm.ollama")
 
 
 class OllamaError(Exception):
@@ -26,9 +30,56 @@ class OllamaClient:
                 pool=10.0,
             ),
         )
+        # Cache of /api/show capabilities per model. Capabilities are a
+        # property of the installed model layer, so a process-lifetime
+        # cache is correct: pulling a new tag would require a restart to
+        # see updated caps, which is rare enough not to design around.
+        self._capabilities: dict[str, frozenset[str]] = {}
+        self._capabilities_lock = asyncio.Lock()
 
     async def close(self) -> None:
         await self._client.aclose()
+
+    async def capabilities(self, model: str) -> frozenset[str]:
+        """Return Ollama's reported capabilities for `model` (e.g. {'completion',
+        'tools', 'thinking', 'vision'}). Empty set if /api/show fails — caller
+        should treat 'unknown' the same as 'unsupported' to avoid sending
+        param flags the model can't handle."""
+        cached = self._capabilities.get(model)
+        if cached is not None:
+            return cached
+        async with self._capabilities_lock:
+            cached = self._capabilities.get(model)
+            if cached is not None:
+                return cached
+            try:
+                info = await self._post_json("/api/show", {"model": model})
+                caps = frozenset(info.get("capabilities") or [])
+            except Exception as err:
+                log.debug(f"capabilities probe failed for {model!r}: {err}")
+                caps = frozenset()
+            self._capabilities[model] = caps
+            return caps
+
+    async def _resolve_think(self, model: str, think: bool) -> bool:
+        """Downgrade `think=True` to False when the model lacks the
+        'thinking' capability — Ollama otherwise returns 400 and the chat
+        request fails outright. Lets the UI keep a single 'think' toggle
+        without per-model gating."""
+        if not think:
+            return False
+        if "thinking" in await self.capabilities(model):
+            return True
+        log.info(f"think=True requested for {model!r} but model lacks 'thinking' capability — downgrading to False")
+        return False
+
+    async def supports_tools(self, model: str) -> bool:
+        """True iff the model self-reports a `tools` capability. Used by
+        callers to decide whether to send `tools=[...]` to this model or
+        re-route to a tool-capable fallback. Ollama returns 400
+        ('does not support tools') if you send tools to a model that
+        can't use them — same failure shape as `think`."""
+        return "tools" in await self.capabilities(model)
 
     async def chat(
         self,
@@ -39,13 +90,15 @@ class OllamaClient:
         think: bool = False,
         format: str | dict | None = None,
         tools: list[dict] | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
     ) -> dict:
         payload: dict = {
             "model": model,
             "messages": messages,
             "stream": False,
-            "think": think,
-            "options": _build_options(temperature, max_tokens),
+            "think": await self._resolve_think(model, think),
+            "options": _build_options(temperature, max_tokens, top_p, top_k),
         }
         if format is not None:
             payload["format"] = format
@@ -61,13 +114,15 @@ class OllamaClient:
         max_tokens: int | None,
         think: bool = False,
         tools: list[dict] | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
     ) -> AsyncIterator[str]:
         payload: dict = {
             "model": model,
             "messages": messages,
             "stream": True,
-            "think": think,
-            "options": _build_options(temperature, max_tokens),
+            "think": await self._resolve_think(model, think),
+            "options": _build_options(temperature, max_tokens, top_p, top_k),
         }
         if tools:
             payload["tools"] = tools
@@ -141,10 +196,19 @@ class OllamaClient:
         return response.json()
 
 
-def _build_options(temperature: float, max_tokens: int | None) -> dict:
+def _build_options(
+    temperature: float,
+    max_tokens: int | None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+) -> dict:
     options: dict = {"temperature": temperature}
     if max_tokens is not None:
         options["num_predict"] = max_tokens
+    if top_p is not None:
+        options["top_p"] = top_p
+    if top_k is not None:
+        options["top_k"] = top_k
     return options
 
 

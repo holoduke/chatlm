@@ -7,6 +7,11 @@ class Message(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: str
     images: list[str] | None = None
+    # Audio attachments (base64 of WAV/MP3/etc). Only consumed by the
+    # llama-server backend so far — Ollama may accept depending on
+    # model/version. Keep parallel to `images` so the request shape
+    # stays symmetric across modalities.
+    audios: list[str] | None = None
     tool_calls: list[dict[str, Any]] | None = None
     tool_name: str | None = None
 
@@ -15,6 +20,11 @@ class ChatRequest(BaseModel):
     messages: list[Message] = Field(..., min_length=1)
     model: str | None = None
     temperature: float = Field(0.7, ge=0.0, le=2.0)
+    # Optional sampling controls. When unset the server fills in
+    # per-model recommendations (e.g. Gemma 4 wants top_p=0.95 / top_k=64
+    # per Google's authors). User-supplied values always win.
+    top_p: float | None = Field(None, ge=0.0, le=1.0)
+    top_k: int | None = Field(None, ge=0, le=1000)
     max_tokens: int | None = Field(None, ge=1, le=131072)
     stream: bool = False
     think: bool = False

@@ -14,90 +14,9 @@ import re
 import time
 from typing import Any, AsyncIterator
 
-log = logging.getLogger("chatlm.mlx")
+from mlx_presets import MLX_MODELS
 
-# Catalogue of MLX-community Gemma 4 models; label drives the dropdown.
-MLX_MODELS: dict[str, dict] = {
-    "mlx:gemma-4-e2b-it-4bit": {
-        "repo": "mlx-community/gemma-4-e2b-it-4bit",
-        "label": "MLX · Gemma 4 E2B-IT 4bit",
-        "parameter_size": "5.1B",
-        "quantization": "q4",
-        "size_gb": 3.6,
-    },
-    "mlx:gemma-4-e4b-it-4bit": {
-        "repo": "mlx-community/gemma-4-e4b-it-4bit",
-        "label": "MLX · Gemma 4 E4B-IT 4bit",
-        "parameter_size": "8.0B",
-        "quantization": "q4",
-        "size_gb": 5.8,
-    },
-    "mlx:gemma-4-e2b-it-8bit": {
-        "repo": "mlx-community/gemma-4-e2b-it-8bit",
-        "label": "MLX · Gemma 4 E2B-IT 8bit",
-        "parameter_size": "5.1B",
-        "quantization": "q8",
-        "size_gb": 6.1,
-    },
-    "mlx:gemma-4-e4b-it-8bit": {
-        "repo": "mlx-community/gemma-4-E4B-it-8bit",
-        "label": "MLX · Gemma 4 E4B-IT 8bit",
-        "parameter_size": "8.0B",
-        "quantization": "q8",
-        "size_gb": 8.4,
-    },
-    "mlx:gemma-4-e4b-it-ud-4bit": {
-        "repo": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
-        "label": "MLX · Gemma 4 E4B-IT UD 4bit (Unsloth)",
-        "parameter_size": "8.0B",
-        "quantization": "q4-ud",
-        "size_gb": 6.2,
-    },
-    "mlx:gemma-4-26b-a4b-it-4bit": {
-        "repo": "mlx-community/gemma-4-26b-a4b-it-4bit",
-        "label": "MLX · Gemma 4 26B-A4B-IT 4bit (MoE)",
-        "parameter_size": "26B MoE (~3.8B active)",
-        "quantization": "q4",
-        "size_gb": 15.0,
-    },
-    "mlx:gemma-4-26b-a4b-it-ud-4bit": {
-        "repo": "unsloth/gemma-4-26b-a4b-it-UD-MLX-4bit",
-        "label": "MLX · Gemma 4 26B-A4B-IT UD 4bit (Unsloth MoE)",
-        "parameter_size": "26B MoE (~3.8B active)",
-        "quantization": "q4-ud",
-        "size_gb": 15.0,
-    },
-    # Qwen3.5 — too new for llama.cpp / Ollama (custom `qwen35` arch token).
-    # MLX has its own arch dispatch and supports it via mlx-community.
-    "mlx:qwen3.5-4b-4bit": {
-        "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
-        "label": "MLX · Qwen 3.5 4B 4bit",
-        "parameter_size": "4.2B",
-        "quantization": "q4",
-        "size_gb": 2.5,
-    },
-    "mlx:qwen3.5-9b-4bit": {
-        "repo": "mlx-community/Qwen3.5-9B-MLX-4bit",
-        "label": "MLX · Qwen 3.5 9B 4bit",
-        "parameter_size": "8.95B",
-        "quantization": "q4",
-        "size_gb": 5.5,
-    },
-    "mlx:qwen3.5-9b-8bit": {
-        "repo": "mlx-community/Qwen3.5-9B-MLX-8bit",
-        "label": "MLX · Qwen 3.5 9B 8bit",
-        "parameter_size": "8.95B",
-        "quantization": "q8",
-        "size_gb": 9.5,
-    },
-    "mlx:qwen3.5-27b-4bit": {
-        "repo": "mlx-community/Qwen3.5-27B-4bit",
-        "label": "MLX · Qwen 3.5 27B 4bit",
-        "parameter_size": "27B",
-        "quantization": "q4",
-        "size_gb": 15.5,
-    },
-}
+log = logging.getLogger("chatlm.mlx")
 
 
 _loaded: dict[str, tuple[Any, Any, Any]] = {}
@@ -219,6 +138,8 @@ async def chat(
     think: bool = False,
     format: Any = None,
     tools: list[dict] | None = None,
+    top_p: float | None = None,  # accepted for surface parity; mlx_vlm.generate doesn't expose it
+    top_k: int | None = None,    # accepted for surface parity; mlx_vlm.generate doesn't expose it
 ) -> dict:
     """Non-streaming single-shot completion, shaped like Ollama's /api/chat."""
     model_obj, processor, config = await _ensure_loaded(model)
@@ -280,6 +201,8 @@ async def chat_stream(
     max_tokens: int | None,
     think: bool = False,
     tools: list[dict] | None = None,
+    top_p: float | None = None,  # accepted for surface parity; mlx_vlm.stream_generate doesn't expose it
+    top_k: int | None = None,    # accepted for surface parity; mlx_vlm.stream_generate doesn't expose it
 ) -> AsyncIterator[str]:
     """Streaming generator yielding NDJSON lines matching Ollama's /api/chat."""
     import json

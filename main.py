@@ -11,19 +11,28 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+import backends
 import detect as detect_module
+import llama_server_client
 import logging_setup
 import mcp_client
 import memory
 import mlx_client
+import sampling_defaults
 import stats as sysstats
 from config import settings
 from ollama_client import OllamaError, client
 
 
-def _dispatch(model_name: str):
-    """Pick the right chat backend based on model name prefix."""
-    return mlx_client if mlx_client.is_mlx_name(model_name) else client
+# Backwards-compat shims so existing test imports / module-level
+# accesses keep working. New call sites should use the `backends`
+# module directly.
+_OLLAMA_INCAPABLE = backends.OLLAMA_INCAPABLE
+_FALLBACK_FINGERPRINTS = backends.FALLBACK_FINGERPRINTS
+_should_fallback = backends.should_fallback
+_dispatch = backends.dispatch
+_resolve_model_for_dispatch = backends.resolve_model_for_dispatch
+_backend_label = backends.label
 from schemas import (
     ChatRequest,
     ChatResponse,
@@ -140,6 +149,12 @@ async def lifespan(_: FastAPI):
         log.debug(f"MCP restore skipped: {err}")
     yield
     await client.close()
+    # Stop the llama-server subprocess if one was spawned during this run.
+    # Best-effort: errors here just delay garbage collection.
+    try:
+        await llama_server_client.client.close()
+    except Exception as err:
+        log.debug(f"llama-server close skipped: {err}")
 
 
 app = FastAPI(title="chatlm", version="0.1.0", lifespan=lifespan)
@@ -239,23 +254,34 @@ def _merge_tools_with_mcp(user_tools: list[dict] | None) -> list[dict] | None:
     return (user_tools or []) + mcp_tools
 
 
-async def _pick_tool_fallback() -> str:
-    """When the selected model is MLX and tools are requested, MLX can't
-    drive tool calls — fall back to an installed Ollama model. Prefers
-    the largest available (26b-a4b MoE > e4b > e2b). Override via the
-    CHATLM_TOOL_FALLBACK env var."""
-    import os
-    override = os.environ.get("CHATLM_TOOL_FALLBACK")
-    if override:
-        return override
-    try:
-        installed = {m.get("name") for m in (await client.list_models()).get("models", [])}
-    except Exception:
-        installed = set()
-    for candidate in ("gemma4:26b", "gemma4:e4b", "gemma4:e2b"):
-        if candidate in installed:
-            return candidate
-    return "gemma4:e4b"
+async def _drop_tools_if_unsupported(
+    model: str, tools: list[dict] | None
+) -> list[dict] | None:
+    """If the chosen `model` can't drive tool-calling, drop the tools and
+    log a warning. The user's model selection is preserved — tools are
+    silently inactive for this turn rather than swapping to a different
+    (often censored) model behind the user's back.
+
+    Covers three incapable cases:
+    - MLX models: no native tool-calling support.
+    - llama-server models: abliterated GGUFs typically strip the chat
+      template's tool branch, and brew llama-server doesn't expose
+      Ollama-shaped capability metadata.
+    - Ollama models that self-report no `tools` capability.
+    """
+    if not tools:
+        return tools
+    if mlx_client.is_mlx_name(model) or llama_server_client.is_llama_name(model):
+        log.warning(
+            f"model {model!r} doesn't support tools — dropping {len(tools)} tool(s) for this turn"
+        )
+        return None
+    if not await client.supports_tools(model):
+        log.warning(
+            f"model {model!r} lacks 'tools' capability — dropping {len(tools)} tool(s) for this turn"
+        )
+        return None
+    return tools
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -264,25 +290,51 @@ async def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=400, detail="Use /chat/stream for streaming")
     model = request.model or _STATE.emma
     effective_tools = _merge_tools_with_mcp(request.tools)
-    if effective_tools and mlx_client.is_mlx_name(model):
-        model = await _pick_tool_fallback()
+    effective_tools = await _drop_tools_if_unsupported(model, effective_tools)
     msgs = [m.model_dump(exclude_none=True) for m in request.messages]
     n_msgs, n_chars = _prompt_stats(msgs)
-    backend = _dispatch(model)
-    log.info(f"/chat <- model={model} msgs={n_msgs} chars={n_chars} think={request.think} tools={len(effective_tools) if effective_tools else 0} backend={'mlx' if backend is mlx_client else 'ollama'}")
+    dispatch_model = _resolve_model_for_dispatch(model)
+    backend = _dispatch(dispatch_model)
+    temperature, top_p, top_k = sampling_defaults.fill_defaults(
+        model,
+        temperature=request.temperature,
+        top_p=request.top_p,
+        top_k=request.top_k,
+    )
+    log.info(f"/chat <- model={model} msgs={n_msgs} chars={n_chars} think={request.think} tools={len(effective_tools) if effective_tools else 0} backend={_backend_label(backend)} sampling=t={temperature}/p={top_p}/k={top_k}")
     t0 = time.perf_counter()
     try:
         raw = await backend.chat(
-            model=model,
+            model=dispatch_model,
             messages=msgs,
-            temperature=request.temperature,
+            temperature=temperature,
             max_tokens=request.max_tokens,
             think=request.think,
             tools=effective_tools,
+            top_p=top_p,
+            top_k=top_k,
         )
     except OllamaError as err:
-        log.error(f"/chat !! {err}")
-        raise HTTPException(status_code=502, detail=str(err)) from err
+        if backend is client and _should_fallback(str(err)):
+            log.warning(f"/chat fallback: Ollama can't load {model!r} ({err}); retrying via llama-server")
+            _OLLAMA_INCAPABLE.add(model)
+            try:
+                raw = await llama_server_client.client.chat(
+                    model=llama_server_client.PREFIX + model,
+                    messages=msgs,
+                    temperature=temperature,
+                    max_tokens=request.max_tokens,
+                    think=request.think,
+                    tools=effective_tools,
+                    top_p=top_p,
+                    top_k=top_k,
+                )
+            except Exception as ferr:
+                log.error(f"/chat !! fallback failed: {ferr}")
+                raise HTTPException(status_code=502, detail=f"both Ollama and llama-server failed: {ferr}") from ferr
+        else:
+            log.error(f"/chat !! {err}")
+            raise HTTPException(status_code=502, detail=str(err)) from err
     except Exception as err:
         log.error(f"/chat !! {err}")
         raise HTTPException(status_code=500, detail=str(err)) from err
@@ -316,28 +368,65 @@ async def chat(request: ChatRequest) -> ChatResponse:
 async def chat_stream(request: ChatRequest):
     model = request.model or _STATE.emma
     effective_tools = _merge_tools_with_mcp(request.tools)
-    # MLX has no tool-calling path, so re-route tool requests to an Ollama
-    # model that does (gemma4:e2b supports tool_calls via Ollama's template).
-    if effective_tools and mlx_client.is_mlx_name(model):
-        model = await _pick_tool_fallback()
+    effective_tools = await _drop_tools_if_unsupported(model, effective_tools)
     msgs = [m.model_dump(exclude_none=True) for m in request.messages]
     n_msgs, n_chars = _prompt_stats(msgs)
-    backend = _dispatch(model)
-    log.info(f"/chat/stream <- model={model} msgs={n_msgs} chars={n_chars} think={request.think} tools={len(effective_tools) if effective_tools else 0} backend={'mlx' if backend is mlx_client else 'ollama'}")
+    dispatch_model = _resolve_model_for_dispatch(model)
+    backend = _dispatch(dispatch_model)
+    temperature, top_p, top_k = sampling_defaults.fill_defaults(
+        model,
+        temperature=request.temperature,
+        top_p=request.top_p,
+        top_k=request.top_k,
+    )
+    log.info(f"/chat/stream <- model={model} msgs={n_msgs} chars={n_chars} think={request.think} tools={len(effective_tools) if effective_tools else 0} backend={_backend_label(backend)} sampling=t={temperature}/p={top_p}/k={top_k}")
+
+    async def _iter_chunks(active_backend, active_model):
+        async for chunk in active_backend.chat_stream(
+            model=active_model,
+            messages=msgs,
+            temperature=temperature,
+            max_tokens=request.max_tokens,
+            think=request.think,
+            tools=effective_tools,
+            top_p=top_p,
+            top_k=top_k,
+        ):
+            yield chunk
 
     async def event_stream():
         t0 = time.perf_counter()
         ttft = None
         final = None
+        active_backend = backend
+        active_model = dispatch_model
         try:
-            async for chunk in backend.chat_stream(
-                model=model,
-                messages=msgs,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                think=request.think,
-                tools=effective_tools,
-            ):
+            try:
+                # Pull the first chunk inside this inner try so an early
+                # OllamaError (from connect/load) can trigger a fallback
+                # *before* we've yielded anything to the client.
+                gen = _iter_chunks(active_backend, active_model)
+                first = await gen.__anext__()
+            except OllamaError as err:
+                if active_backend is client and _should_fallback(str(err)):
+                    log.warning(f"/chat/stream fallback: Ollama can't load {model!r} ({err}); retrying via llama-server")
+                    _OLLAMA_INCAPABLE.add(model)
+                    active_backend = llama_server_client.client
+                    active_model = llama_server_client.PREFIX + model
+                    gen = _iter_chunks(active_backend, active_model)
+                    first = await gen.__anext__()
+                else:
+                    raise
+            except StopAsyncIteration:
+                first = None
+
+            async def _replay():
+                if first is not None:
+                    yield first
+                async for c in gen:
+                    yield c
+
+            async for chunk in _replay():
                 if ttft is None:
                     ttft = time.perf_counter() - t0
                 try:
@@ -503,6 +592,14 @@ async def list_models_endpoint() -> dict:
         all_models = all_models + (mlx_raw.get("models") or [])
     except Exception as err:
         log.warning(f"/models: mlx list failed: {err}")
+    # Surface the currently-resident llama-server model (if any) under
+    # the `llama:` prefix so it's selectable in the dropdown after
+    # auto-fallback has loaded it once.
+    try:
+        ls_raw = await llama_server_client.client.list_models()
+        all_models = all_models + (ls_raw.get("models") or [])
+    except Exception as err:
+        log.warning(f"/models: llama-server list failed: {err}")
     available = []
     for m in all_models:
         size_gb = round(m.get("size", 0) / 1024**3, 2)
@@ -539,6 +636,14 @@ async def _validate_chat_model(name: str) -> None:
     if mlx_client.is_mlx_name(name):
         if name not in mlx_client.MLX_MODELS:
             raise HTTPException(status_code=400, detail=f"unknown MLX model '{name}'")
+        return
+    if llama_server_client.is_llama_name(name):
+        # llama-server pulls the GGUF blob from Ollama's local cache, so
+        # validation reduces to "manifest exists on disk".
+        try:
+            llama_server_client.resolve_blob_path(name)
+        except FileNotFoundError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
         return
     try:
         tags = await client.list_models()
