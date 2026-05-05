@@ -72,6 +72,9 @@ from schemas import (
     SpeakResponse,
     ToolExecRequest,
     ToolExecResponse,
+    WebSearchHit,
+    WebSearchRequest,
+    WebSearchResponse,
     Txt2ImgRequest,
     Txt2ImgResponse,
     AppendMessageRequest,
@@ -1533,6 +1536,46 @@ async def tools_exec(request: ToolExecRequest) -> ToolExecResponse:
         duration_ms=latency_ms,
         truncated=truncated,
     )
+
+
+@app.post("/tools/web_search", response_model=WebSearchResponse)
+async def tools_web_search(request: WebSearchRequest) -> WebSearchResponse:
+    """DuckDuckGo web search (no API key). Returns title/href/body for each
+    hit. Read-only by nature so we don't gate it behind an approval modal —
+    the LLM only invokes it on legitimate search needs and the tool toggle
+    in the toolbar already gates whether it's available at all."""
+    from ddgs import DDGS
+
+    log.info(f"/tools/web_search <- query={request.query!r} n={request.max_results}")
+    t0 = time.perf_counter()
+    try:
+        # ddgs is sync — push to a thread so we don't block the event loop
+        # while it's waiting on DDG's response.
+        raw = await asyncio.to_thread(
+            lambda: list(
+                DDGS().text(
+                    request.query,
+                    max_results=request.max_results,
+                    region=request.region,
+                    safesearch=request.safesearch,
+                )
+            )
+        )
+    except Exception as err:
+        log.warning(f"/tools/web_search !! {err}")
+        raise HTTPException(status_code=502, detail=f"search failed: {err}") from err
+
+    hits = [
+        WebSearchHit(
+            title=str(r.get("title") or ""),
+            href=str(r.get("href") or ""),
+            body=str(r.get("body") or ""),
+        )
+        for r in raw
+    ]
+    duration_ms = int((time.perf_counter() - t0) * 1000)
+    log.info(f"/tools/web_search -> {len(hits)} results in {duration_ms}ms")
+    return WebSearchResponse(query=request.query, results=hits, duration_ms=duration_ms)
 
 
 @app.post("/generate", response_model=GenerateResponse)

@@ -31,6 +31,11 @@ peft==0.19.1
 safetensors==0.7.0
 sentencepiece==0.2.1
 
+# --- web search (ddgs) --------------------------------------------------
+# Powers the web_search tool surfaced to the chat LLM. No API key.
+# `ddgs` is the renamed-from-`duckduckgo-search` package — same engine.
+ddgs==9.14.2
+
 # --- Apple Silicon native (mlx) ----------------------------------------
 # mlx-vlm pulls mlx + mlx-lm transitively; we pin them explicitly so a
 # fresh venv on a new mac doesn't surprise-jump a major.

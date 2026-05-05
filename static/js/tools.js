@@ -45,6 +45,33 @@ export const SHELL_TOOL = {
   },
 };
 
+export const WEB_SEARCH_TOOL = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description:
+      "Search the live web via DuckDuckGo. Use this whenever the user asks about " +
+      "current events, recent news, prices, weather, sports scores, software versions, " +
+      "or anything else you can't reliably answer from training data. Also use it before " +
+      "claiming you don't know something. Returns up to 8 results with title, URL, and a " +
+      "short snippet — cite the URLs in your response. Read-only and free; no approval needed.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query. Keep it short and keyword-y like a Google query, not a full sentence.",
+        },
+        max_results: {
+          type: "integer",
+          description: "How many hits to return (1-20). Default 5.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+};
+
 export const IMAGE_TOOL = {
   type: "function",
   function: {
@@ -243,6 +270,74 @@ async function handleRunShell(tc, container) {
   }
 }
 
+async function handleWebSearch(tc, container) {
+  // Read-only — skip the approval modal entirely. The user already
+  // opted in by enabling TOOLS in the toolbar.
+  const args = tc.function?.arguments || {};
+  const query = String(args.query || "").trim();
+  const maxResults = Math.max(1, Math.min(20, parseInt(args.max_results, 10) || 5));
+  if (!query) {
+    recordToolResponse("web_search", "[skipped] empty query");
+    return;
+  }
+  // Render an in-progress card so the user sees what's being searched.
+  const card = document.createElement("div");
+  card.className = "tool-call";
+  card.innerHTML = `
+    <div class="tool-call-head">// WEB SEARCH</div>
+    <code class="tool-call-cmd">${query.replace(/[<&>]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c])}</code>
+    <div class="tool-call-actions"></div>`;
+  container.appendChild(card);
+  scrollBottom();
+
+  setStatus("busy", "LINK // SEARCHING");
+  try {
+    const t0 = performance.now();
+    const r = await fetch("/tools/web_search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, max_results: maxResults }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    if (!data.results?.length) {
+      renderToolResult(card, "(no results)", true);
+      renderToolMeta(card, `0 results · ${data.duration_ms} ms`);
+      recordToolResponse("web_search", `[web_search "${query}" — no results]`);
+      return;
+    }
+    // Markdown-format the hits so they render with proper links and
+    // the LLM gets a structured payload it can quote/cite from.
+    const md = data.results
+      .map((h, i) => {
+        const num = String(i + 1).padStart(2, " ");
+        const body = (h.body || "").replace(/\s+/g, " ").trim();
+        return `${num}. [${h.title}](${h.href})\n    ${body}`;
+      })
+      .join("\n\n");
+    renderToolResult(card, md, false, { asMarkdown: true });
+    renderToolMeta(
+      card,
+      `${data.results.length} results · ${Math.round(performance.now() - t0)} ms`,
+    );
+    // Compact, machine-friendly form for history (no markdown links —
+    // helps the LLM cite by URL without re-parsing).
+    const transcript = data.results
+      .map((h, i) => `[${i + 1}] ${h.title}\n    ${h.href}\n    ${h.body}`)
+      .join("\n\n");
+    recordToolResponse(
+      "web_search",
+      `web_search results for "${query}":\n\n${transcript}`,
+      { query, count: data.results.length },
+    );
+  } catch (err) {
+    renderToolResult(card, `[ERR] ${err.message}`, true);
+    recordToolResponse("web_search", `[search failed] ${err.message}`);
+  } finally {
+    setStatus("ready");
+  }
+}
+
 async function handleGenerateImage(tc, container) {
   setStatus("busy", "LINK // AWAITING APPROVAL");
   const args = tc.function?.arguments || {};
@@ -310,6 +405,7 @@ async function handleMcpTool(tc, container) {
 const TOOL_HANDLERS = {
   run_shell: handleRunShell,
   generate_image: handleGenerateImage,
+  web_search: handleWebSearch,
 };
 
 export async function dispatchToolCall(tc, container) {

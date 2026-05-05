@@ -7,7 +7,7 @@
 import { scrollBottom, setStatus, sendEl, inputEl } from "./core.js";
 import { history, pending, toggles, CHAT_MAX_TOKENS, HISTORY_MAX_MESSAGES } from "./state.js";
 import { addMessage } from "./messages.js";
-import { SHELL_TOOL, IMAGE_TOOL, dispatchToolCall } from "./tools.js";
+import { SHELL_TOOL, IMAGE_TOOL, WEB_SEARCH_TOOL, dispatchToolCall } from "./tools.js";
 import { Sessions } from "./sessions.js";
 import { speakText } from "./voice.js";
 import { renderAttachStrip } from "./attach.js";
@@ -72,7 +72,7 @@ async function streamChatTurn(botBody) {
     think: toggles.think,
     max_tokens: CHAT_MAX_TOKENS,
   };
-  if (toggles.tools) payload.tools = [SHELL_TOOL, IMAGE_TOOL];
+  if (toggles.tools) payload.tools = [SHELL_TOOL, IMAGE_TOOL, WEB_SEARCH_TOOL];
   const res = await fetch("/chat/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
