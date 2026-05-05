@@ -41,6 +41,44 @@ function stripPageScopedTags(html) {
     .replace(/<base\b[^>]*>/gi, "");
 }
 
+/* Render `<pre><code class="language-html">…</code></pre>` blocks with a
+ * sandboxed iframe preview appended underneath. The code stays visible
+ * (so the user can read/copy it) and a live preview appears below it.
+ *
+ * Why an iframe and not Shadow DOM: <script> inserted via innerHTML never
+ * executes (HTML5 spec), and <style> inside Shadow DOM still leaks via
+ * descendants of the host that aren't shadow children. Iframe srcdoc
+ * gives full document isolation — scripts run, styles scope, and the
+ * `sandbox` attribute keeps the iframe at null origin so it can't reach
+ * back into the chat app. allow-scripts is the minimum surface that
+ * makes typical demos (canvas games, interactive forms) work. We
+ * deliberately omit allow-same-origin: combined with allow-scripts it
+ * would let the iframe escape via document.cookie tricks. */
+function attachHtmlPreviews(html) {
+  return html.replace(
+    /<pre><code class="language-html">([\s\S]*?)<\/code><\/pre>/g,
+    (match, encoded) => {
+      const decoded = decodeMarkedEntities(encoded);
+      const srcdoc = decoded
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;");
+      return `${match}<iframe class="html-preview" sandbox="allow-scripts" srcdoc="${srcdoc}" loading="lazy" title="HTML preview"></iframe>`;
+    },
+  );
+}
+
+/* marked HTML-encodes the body of every code block. Reverse the five
+ * entities it emits so the iframe receives the original markup. Order
+ * matters: &amp; last, otherwise we'd double-decode `&amp;lt;`. */
+function decodeMarkedEntities(s) {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 /* Wrap any bare http(s) URL in angle brackets so marked's autolink
  * handler picks it up even when it sits awkwardly between newlines or
  * after punctuation that would otherwise cause marked's GFM autolink
@@ -61,7 +99,11 @@ function preAutoLink(text) {
 export function renderMarkdown(text) {
   if (!text) return "";
   try {
-    return externalizeLinks(stripPageScopedTags(marked.parse(preAutoLink(text))));
+    // Order matters: previews are applied LAST so neither stripPageScopedTags
+    // nor externalizeLinks touches the raw HTML inside the iframe's srcdoc
+    // attribute. (externalizeLinks's regex was happily mangling <a> tags
+    // inside srcdoc until this ordering was enforced.)
+    return attachHtmlPreviews(externalizeLinks(stripPageScopedTags(marked.parse(preAutoLink(text)))));
   } catch (err) {
     // If marked ever chokes on partial input, fall back to the raw text.
     console.warn("[markdown] parse failed, falling back to text", err);

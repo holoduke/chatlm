@@ -20,6 +20,10 @@ _RECOMMENDATIONS: list[tuple[str, dict]] = [
     # community quants reproduce this).
     ("gemma-4", {"temperature": 1.0, "top_p": 0.95, "top_k": 64}),
     ("gemma4", {"temperature": 1.0, "top_p": 0.95, "top_k": 64}),
+    # Qwen 3.6 (thinking mode is the default; README:
+    # https://huggingface.co/Qwen/Qwen3.6-27B § Best Practices).
+    # Listed before the broader `qwen3` so it wins on substring match.
+    ("qwen3.6", {"temperature": 1.0, "top_p": 0.95, "top_k": 20}),
     # Qwen 3.x reasoning models recommend top_p=0.8, top_k=20.
     ("qwen3", {"top_p": 0.8, "top_k": 20}),
 ]

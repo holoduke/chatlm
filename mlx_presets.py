@@ -100,4 +100,17 @@ MLX_MODELS: dict[str, dict] = {
         "quantization": "q4",
         "size_gb": 15.5,
     },
+
+    # ── Qwen 3.6 ──────────────────────────────────────────────────────
+    # Architecturally the same as Qwen 3.5 (`model_type: qwen3_5`,
+    # `Qwen3_5ForConditionalGeneration`) — just a retrained checkpoint.
+    # mlx-vlm's `qwen3_5` arch handler covers it. README's recommended
+    # thinking-mode sampling lives in sampling_defaults.py.
+    "mlx:qwen3.6-27b-ud-4bit": {
+        "repo": "unsloth/Qwen3.6-27B-UD-MLX-4bit",
+        "label": "MLX · Qwen 3.6 27B UD 4bit (Unsloth)",
+        "parameter_size": "27B",
+        "quantization": "q4-ud",
+        "size_gb": 15.5,
+    },
 }

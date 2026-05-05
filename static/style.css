@@ -864,6 +864,32 @@ body.mode-video .bar-mini { width: 24px; }
   color: var(--text);
 }
 
+/* Visual marker for a turn that was replaced by the safety classifier.
+   Subtle red left border + dim opacity so it's clearly distinguishable
+   from a normal assistant reply without being shouty. */
+.msg.bot .body.guard-blocked {
+  border-left: 2px solid #ff4d6d;
+  padding-left: 10px;
+  opacity: 0.85;
+}
+
+/* Live preview for ```html code blocks. Sandboxed iframe sits directly
+   below the code, sized roughly like the code block. User-resizable so
+   they can pop a tall demo open. White background so demos that don't
+   set their own one (most don't) are still legible against our dark
+   theme. */
+.msg.bot .body iframe.html-preview {
+  display: block;
+  width: 100%;
+  height: 360px;
+  margin: 0 0 12px 0;
+  border: 1px solid var(--panel-edge);
+  border-left: 2px solid var(--magenta);
+  background: #fff;
+  resize: vertical;
+  overflow: auto;
+}
+
 .msg.bot .body blockquote,
 .thought-body blockquote {
   margin: 6px 0;
