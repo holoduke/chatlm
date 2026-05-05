@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 import backends
 import detect as detect_module
+import guard_client
 import llama_server_client
 import logging_setup
 import mcp_client
@@ -20,6 +21,7 @@ import memory
 import mlx_client
 import sampling_defaults
 import stats as sysstats
+import talkie_client
 from config import settings
 from ollama_client import OllamaError, client
 
@@ -155,6 +157,18 @@ async def lifespan(_: FastAPI):
         await llama_server_client.client.close()
     except Exception as err:
         log.debug(f"llama-server close skipped: {err}")
+    # Drop the talkie model (~26 GB resident) so a clean shutdown
+    # actually frees unified memory. Best-effort.
+    try:
+        await talkie_client.close()
+    except Exception as err:
+        log.debug(f"talkie close skipped: {err}")
+    # Unload the safety classifier (if it was enabled) so its <2 GB
+    # also gets returned to the OS.
+    try:
+        await guard_client.client.close()
+    except Exception as err:
+        log.debug(f"guard close skipped: {err}")
 
 
 app = FastAPI(title="chatlm", version="0.1.0", lifespan=lifespan)
@@ -228,6 +242,27 @@ async def stats_endpoint() -> dict:
     return data
 
 
+@app.get("/guard/status")
+async def guard_status() -> dict:
+    """Current guard configuration. Frontend polls this on load to
+    paint the toggle in the right state."""
+    return {
+        "enabled": guard_client.client.enabled,
+        "model": guard_client.client.model,
+        "categories": guard_client.CATEGORY_LABELS,
+    }
+
+
+@app.post("/guard/toggle")
+async def guard_toggle(payload: dict) -> dict:
+    """Flip the guard on or off at runtime. When toggled OFF the guard
+    model is unloaded from Ollama immediately so unified memory is
+    reclaimed without waiting for keep_alive expiry."""
+    enabled = bool(payload.get("enabled", False))
+    await guard_client.client.set_enabled(enabled)
+    return {"enabled": guard_client.client.enabled}
+
+
 @app.get("/health")
 async def health() -> dict:
     try:
@@ -284,6 +319,44 @@ async def _drop_tools_if_unsupported(
     return tools
 
 
+def _last_user_text(msgs: list[dict]) -> str:
+    """Pull the most recent user message's text content. Vision/audio
+    parts are ignored — the guard model only sees text. Returns empty
+    string if no user turn exists in the conversation."""
+    for m in reversed(msgs):
+        if m.get("role") == "user":
+            content = m.get("content", "")
+            if isinstance(content, str):
+                return content
+            # Multimodal arrays — concatenate text parts, drop the rest.
+            if isinstance(content, list):
+                return " ".join(
+                    p.get("text", "") for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                )
+            return str(content)
+    return ""
+
+
+def _build_block_payload(role: str, categories: list[str]) -> dict:
+    """Canned response for a guard-blocked turn. Shape matches Ollama's
+    /api/chat response so the existing /chat path returns it unchanged
+    and /chat/stream can yield it as a single done=true NDJSON event."""
+    labels = guard_client.label_categories(categories)
+    body = "I can't help with that. (Blocked by guardrails"
+    if labels:
+        body += ": " + ", ".join(labels)
+    body += ".)"
+    return {
+        "model": "guardrails",
+        "message": {"role": "assistant", "content": body},
+        "done": True,
+        "_blocked_by_guard": True,
+        "_blocked_role": role,
+        "_blocked_categories": categories,
+    }
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     if request.stream:
@@ -302,6 +375,20 @@ async def chat(request: ChatRequest) -> ChatResponse:
         top_k=request.top_k,
     )
     log.info(f"/chat <- model={model} msgs={n_msgs} chars={n_chars} think={request.think} tools={len(effective_tools) if effective_tools else 0} backend={_backend_label(backend)} sampling=t={temperature}/p={top_p}/k={top_k}")
+    # Pre-check: route the user's text through the guard before paying
+    # for chat-model inference. No-op when guard disabled (returns
+    # safe=True with skipped=True).
+    guard_in = await guard_client.client.classify_user(_last_user_text(msgs))
+    if not guard_in.get("safe", True):
+        log.info(f"/chat blocked by guard (input): categories={guard_in.get('categories')}")
+        blocked = _build_block_payload("input", guard_in.get("categories", []))
+        return ChatResponse(
+            model=blocked["model"],
+            message=Message(role="assistant", content=blocked["message"]["content"]),
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_duration_ms=0,
+        )
     t0 = time.perf_counter()
     try:
         raw = await backend.chat(
@@ -341,6 +428,21 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     wall = time.perf_counter() - t0
     msg = raw.get("message", {})
+    # Post-check: classify the assistant's output before returning. If
+    # the guard flags it, replace the body with a canned refusal —
+    # tool_calls and metrics are dropped intentionally so a blocked
+    # turn can't trigger downstream tool execution.
+    guard_out = await guard_client.client.classify_assistant(msg.get("content", "") or "")
+    if not guard_out.get("safe", True):
+        log.info(f"/chat blocked by guard (output): categories={guard_out.get('categories')}")
+        blocked = _build_block_payload("output", guard_out.get("categories", []))
+        return ChatResponse(
+            model=blocked["model"],
+            message=Message(role="assistant", content=blocked["message"]["content"]),
+            prompt_tokens=raw.get("prompt_eval_count"),
+            completion_tokens=0,
+            total_duration_ms=int((wall * 1000)),
+        )
     total_ns = raw.get("total_duration") or 0
     load_ms = (raw.get("load_duration") or 0) / 1e6
     prefill_ms = (raw.get("prompt_eval_duration") or 0) / 1e6
@@ -368,7 +470,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
 async def chat_stream(request: ChatRequest):
     model = request.model or _STATE.emma
     effective_tools = _merge_tools_with_mcp(request.tools)
+    # Track whether the unsupported-tools drop fired, so we can surface
+    # it to the user via an inline notice — otherwise the LLM silently
+    # answers without ever seeing the tools and the user has no idea
+    # why their tool didn't fire.
+    tools_before = len(effective_tools or [])
     effective_tools = await _drop_tools_if_unsupported(model, effective_tools)
+    tools_dropped = tools_before - len(effective_tools or [])
     msgs = [m.model_dump(exclude_none=True) for m in request.messages]
     n_msgs, n_chars = _prompt_stats(msgs)
     dispatch_model = _resolve_model_for_dispatch(model)
@@ -380,6 +488,19 @@ async def chat_stream(request: ChatRequest):
         top_k=request.top_k,
     )
     log.info(f"/chat/stream <- model={model} msgs={n_msgs} chars={n_chars} think={request.think} tools={len(effective_tools) if effective_tools else 0} backend={_backend_label(backend)} sampling=t={temperature}/p={top_p}/k={top_k}")
+
+    # Pre-check before opening the upstream stream — if the user input
+    # is unsafe we yield one canned NDJSON event and skip the chat
+    # model entirely.
+    guard_in = await guard_client.client.classify_user(_last_user_text(msgs))
+    if not guard_in.get("safe", True):
+        log.info(f"/chat/stream blocked by guard (input): categories={guard_in.get('categories')}")
+        blocked = _build_block_payload("input", guard_in.get("categories", []))
+
+        async def blocked_stream():
+            yield json.dumps(blocked) + "\n"
+
+        return StreamingResponse(blocked_stream(), media_type="application/x-ndjson")
 
     async def _iter_chunks(active_backend, active_model):
         async for chunk in active_backend.chat_stream(
@@ -400,6 +521,20 @@ async def chat_stream(request: ChatRequest):
         final = None
         active_backend = backend
         active_model = dispatch_model
+        # Surface the tools-dropped warning to the UI as a first-line
+        # notice event before any model output. The frontend renders
+        # `_notice` as a compact inline banner in the chat — see
+        # static/js/chat.js for the handler.
+        if tools_dropped:
+            yield json.dumps({
+                "_notice": (
+                    f"This model can't drive tool calls — {tools_dropped} tool(s) "
+                    f"({'including run_shell' if tools_dropped else ''}) ignored "
+                    f"for this turn. Switch to a tools-capable model "
+                    f"(e.g. gemma4:26b) if you need execution."
+                ),
+                "level": "warn",
+            }) + "\n"
         try:
             try:
                 # Pull the first chunk inside this inner try so an early
@@ -426,6 +561,11 @@ async def chat_stream(request: ChatRequest):
                 async for c in gen:
                     yield c
 
+            # Buffer assistant content for the post-stream guard check.
+            # We forward each chunk to the client unchanged so streaming
+            # UX stays snappy — the moderation event arrives as a
+            # follow-up after `done:true`.
+            assistant_text_parts: list[str] = []
             async for chunk in _replay():
                 if ttft is None:
                     ttft = time.perf_counter() - t0
@@ -433,9 +573,29 @@ async def chat_stream(request: ChatRequest):
                     evt = json.loads(chunk)
                     if evt.get("done"):
                         final = evt
+                    delta = (evt.get("message", {}) or {}).get("content")
+                    if delta:
+                        assistant_text_parts.append(delta)
                 except json.JSONDecodeError:
                     pass
                 yield chunk + "\n"
+            # Post-check: classify the assembled assistant text. If the
+            # guard fires, emit a trailing event so the frontend can
+            # mark the turn as blocked. We deliberately don't try to
+            # rewrite the already-streamed text mid-flight.
+            assistant_text = "".join(assistant_text_parts)
+            guard_out = await guard_client.client.classify_assistant(assistant_text)
+            if not guard_out.get("safe", True):
+                log.info(f"/chat/stream blocked by guard (output): categories={guard_out.get('categories')}")
+                blocked_evt = {
+                    "_guard_blocked": True,
+                    "_blocked_role": "output",
+                    "_blocked_categories": guard_out.get("categories", []),
+                    "_blocked_message": _build_block_payload(
+                        "output", guard_out.get("categories", []),
+                    )["message"]["content"],
+                }
+                yield json.dumps(blocked_evt) + "\n"
         except OllamaError as err:
             log.error(f"/chat/stream !! {err}")
             yield f'{{"error": {str(err)!r}}}\n'
@@ -600,6 +760,13 @@ async def list_models_endpoint() -> dict:
         all_models = all_models + (ls_raw.get("models") or [])
     except Exception as err:
         log.warning(f"/models: llama-server list failed: {err}")
+    # Talkie-lm vintage models (custom architecture; runs through the
+    # talkie PyTorch package rather than Ollama / llama.cpp).
+    try:
+        tk_raw = await talkie_client.list_models()
+        all_models = all_models + (tk_raw.get("models") or [])
+    except Exception as err:
+        log.warning(f"/models: talkie list failed: {err}")
     available = []
     for m in all_models:
         size_gb = round(m.get("size", 0) / 1024**3, 2)
@@ -644,6 +811,19 @@ async def _validate_chat_model(name: str) -> None:
             llama_server_client.resolve_blob_path(name)
         except FileNotFoundError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
+        return
+    if talkie_client.is_talkie_name(name):
+        # talkie's MODELS registry knows the canonical names; existence on
+        # disk is checked lazily on first generation (download from HF if
+        # missing) — skip the disk probe here to keep dropdown switches
+        # snappy.
+        try:
+            from talkie import MODELS as _TALKIE_MODELS
+        except Exception as err:
+            raise HTTPException(status_code=503, detail=f"talkie package unavailable: {err}") from err
+        canonical = talkie_client._canonical_model_name(talkie_client.strip_prefix(name))
+        if canonical not in _TALKIE_MODELS:
+            raise HTTPException(status_code=400, detail=f"unknown talkie model '{name}' (canonical={canonical})")
         return
     try:
         tags = await client.list_models()

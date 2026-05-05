@@ -92,6 +92,40 @@ autoApproveEl.addEventListener("change", () => {
 });
 applyTools();
 
+// ---------- GUARD toggle ----------
+// Server holds the source-of-truth (so the model is actually loaded /
+// unloaded inside Ollama). The button just reflects + flips it. We
+// pull the initial state at boot and trust the response.
+const guardEl = document.getElementById("guard-toggle");
+function paintGuard(on) {
+  guardEl.setAttribute("aria-pressed", on ? "true" : "false");
+}
+async function fetchGuardStatus() {
+  try {
+    const r = await fetch("/guard/status");
+    if (r.ok) paintGuard(((await r.json()) || {}).enabled);
+  } catch { /* server may be older — leave button off */ }
+}
+guardEl.addEventListener("click", async () => {
+  const next = guardEl.getAttribute("aria-pressed") !== "true";
+  // Optimistic paint so the click feels snappy; revert if the server
+  // disagrees (e.g. ollama unreachable when trying to enable).
+  paintGuard(next);
+  try {
+    const r = await fetch("/guard/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    });
+    const data = await r.json();
+    paintGuard(!!data.enabled);
+  } catch (err) {
+    paintGuard(!next);
+    console.warn("[guard] toggle failed", err);
+  }
+});
+fetchGuardStatus();
+
 // ---------- composer ----------
 export function autosize() {
   inputEl.style.height = "auto";

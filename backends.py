@@ -1,10 +1,13 @@
 """Backend dispatch + auto-fallback policy.
 
-Three backends serve chat:
+Four backends serve chat:
 - **Ollama** (default) — daemon at :11434
 - **MLX-VLM** (`mlx:` prefix) — Apple Silicon native
 - **llama-server** (`llama:` prefix) — latest llama.cpp; covers GGUFs
   Ollama's bundled llama.cpp can't parse (e.g. `gemma4` arch).
+- **talkie** (`talkie:` prefix) — wraps the talkie-lm PyTorch package
+  for the 1930-13b vintage models (custom architecture; no GGUF mirror
+  exists, so this is the only path).
 
 The fallback cache below tracks Ollama-incapable model names. Once an
 attempt fails with a known fingerprint, the same model rerouted to
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import llama_server_client
 import mlx_client
+import talkie_client
 from ollama_client import client as _ollama_client
 
 
@@ -56,6 +60,8 @@ def dispatch(model_name: str):
         return mlx_client
     if llama_server_client.is_llama_name(model_name):
         return llama_server_client.client
+    if talkie_client.is_talkie_name(model_name):
+        return talkie_client
     if model_name in OLLAMA_INCAPABLE:
         return llama_server_client.client
     return _ollama_client
@@ -80,6 +86,8 @@ def label(backend) -> str:
         return "mlx"
     if backend is llama_server_client.client:
         return "llama-server"
+    if backend is talkie_client:
+        return "talkie"
     return "ollama"
 
 

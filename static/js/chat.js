@@ -12,6 +12,7 @@ import { Sessions } from "./sessions.js";
 import { speakText } from "./voice.js";
 import { renderAttachStrip } from "./attach.js";
 import { renderMarkdown } from "./markdown.js";
+import { ChannelStripper } from "./harmony.js";
 
 function trimHistoryInPlace() {
   if (history.length <= HISTORY_MAX_MESSAGES) return;
@@ -87,6 +88,10 @@ async function streamChatTurn(botBody) {
   let thoughtEl = null;
   let thoughtBodyEl = null;
   let finalEvt = null;
+  // Splits Harmony-style `<|channel>thought<channel|>...` prefixes so
+  // the channel content lands in the REASONING panel and the visible
+  // answer stays in the body. No-op for models that don't emit them.
+  const channels = new ChannelStripper();
   const toolCalls = [];
   const toolCallKeys = new Set();
   const startedAt = performance.now();
@@ -118,6 +123,16 @@ async function streamChatTurn(botBody) {
       try {
         const evt = JSON.parse(line);
         if (evt.error) throw new Error(evt.error);
+        // Server-emitted inline notice (warnings the user needs to see
+        // mid-conversation — e.g. "tools dropped" because the chosen
+        // model can't drive them, "fallback fired" etc.). One <div>
+        // pinned above the bot body; multiple notices stack.
+        if (evt._notice) {
+          const note = document.createElement("div");
+          note.className = `chat-notice chat-notice-${evt.level || "info"}`;
+          note.textContent = evt._notice;
+          botBody.parentElement.insertBefore(note, botBody);
+        }
         const thinkDelta = evt.message?.thinking ?? "";
         if (thinkDelta) {
           if (firstTokenAt === null) firstTokenAt = performance.now();
@@ -129,9 +144,18 @@ async function streamChatTurn(botBody) {
         const delta = evt.message?.content ?? "";
         if (delta) {
           if (firstTokenAt === null) firstTokenAt = performance.now();
-          full += delta;
-          botBody.innerHTML = renderMarkdown(full);
-          scrollBottom();
+          const split = channels.feed(delta);
+          if (split.think) {
+            thought += split.think;
+            ensureThought();
+            thoughtBodyEl.innerHTML = renderMarkdown(thought);
+            scrollBottom();
+          }
+          if (split.content) {
+            full += split.content;
+            botBody.innerHTML = renderMarkdown(full);
+            scrollBottom();
+          }
         }
         // Ollama streams tool-call chunks incrementally and often re-emits
         // the same tool_calls across events. Dedupe by a stable key so we
@@ -148,10 +172,33 @@ async function streamChatTurn(botBody) {
           }
         }
         if (evt.done) finalEvt = evt;
+        // Trailing event from the server's post-output guard check.
+        // Replace the streamed body with the canned refusal so the user
+        // sees the block, not the un-moderated output that briefly
+        // streamed before the verdict came back.
+        if (evt._guard_blocked) {
+          full = evt._blocked_message || "Blocked by guardrails.";
+          botBody.innerHTML = renderMarkdown(full);
+          botBody.classList.add("guard-blocked");
+          scrollBottom();
+        }
       } catch {
         /* partial json */
       }
     }
+  }
+  // Flush any bytes held by the channel splitter — covers the edge case
+  // of a stream that ended while still mid-buffer (e.g. `<|chann` arrived
+  // and then the connection closed).
+  const tail = channels.finalise();
+  if (tail.think) {
+    thought += tail.think;
+    ensureThought();
+    thoughtBodyEl.innerHTML = renderMarkdown(thought);
+  }
+  if (tail.content) {
+    full += tail.content;
+    botBody.innerHTML = renderMarkdown(full);
   }
   if (thoughtEl) thoughtEl.open = false;
   return { content: full, thought, toolCalls, finalEvt, botBody, startedAt, firstTokenAt };
