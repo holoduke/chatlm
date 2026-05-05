@@ -123,6 +123,16 @@ async function streamChatTurn(botBody) {
       try {
         const evt = JSON.parse(line);
         if (evt.error) throw new Error(evt.error);
+        // Server-emitted inline notice (warnings the user needs to see
+        // mid-conversation — e.g. "tools dropped" because the chosen
+        // model can't drive them, "fallback fired" etc.). One <div>
+        // pinned above the bot body; multiple notices stack.
+        if (evt._notice) {
+          const note = document.createElement("div");
+          note.className = `chat-notice chat-notice-${evt.level || "info"}`;
+          note.textContent = evt._notice;
+          botBody.parentElement.insertBefore(note, botBody);
+        }
         const thinkDelta = evt.message?.thinking ?? "";
         if (thinkDelta) {
           if (firstTokenAt === null) firstTokenAt = performance.now();

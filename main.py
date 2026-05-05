@@ -470,7 +470,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
 async def chat_stream(request: ChatRequest):
     model = request.model or _STATE.emma
     effective_tools = _merge_tools_with_mcp(request.tools)
+    # Track whether the unsupported-tools drop fired, so we can surface
+    # it to the user via an inline notice — otherwise the LLM silently
+    # answers without ever seeing the tools and the user has no idea
+    # why their tool didn't fire.
+    tools_before = len(effective_tools or [])
     effective_tools = await _drop_tools_if_unsupported(model, effective_tools)
+    tools_dropped = tools_before - len(effective_tools or [])
     msgs = [m.model_dump(exclude_none=True) for m in request.messages]
     n_msgs, n_chars = _prompt_stats(msgs)
     dispatch_model = _resolve_model_for_dispatch(model)
@@ -515,6 +521,20 @@ async def chat_stream(request: ChatRequest):
         final = None
         active_backend = backend
         active_model = dispatch_model
+        # Surface the tools-dropped warning to the UI as a first-line
+        # notice event before any model output. The frontend renders
+        # `_notice` as a compact inline banner in the chat — see
+        # static/js/chat.js for the handler.
+        if tools_dropped:
+            yield json.dumps({
+                "_notice": (
+                    f"This model can't drive tool calls — {tools_dropped} tool(s) "
+                    f"({'including run_shell' if tools_dropped else ''}) ignored "
+                    f"for this turn. Switch to a tools-capable model "
+                    f"(e.g. gemma4:26b) if you need execution."
+                ),
+                "level": "warn",
+            }) + "\n"
         try:
             try:
                 # Pull the first chunk inside this inner try so an early
