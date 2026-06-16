@@ -12,6 +12,7 @@ import { Sessions } from "./sessions.js";
 import {
   appendFeed, clearFeed, startCam, stopCam, camStream, camVideo,
 } from "./camera.js";
+import { enhanceSelect } from "./customSelect.js";
 import { startLive, startScanAuto } from "./video.js";
 import { renderAttachStrip } from "./attach.js";
 
@@ -91,6 +92,40 @@ autoApproveEl.addEventListener("change", () => {
   autoApproveWrap.classList.toggle("armed", toggles.autoApprove);
 });
 applyTools();
+
+// ---------- GUARD toggle ----------
+// Server holds the source-of-truth (so the model is actually loaded /
+// unloaded inside Ollama). The button just reflects + flips it. We
+// pull the initial state at boot and trust the response.
+const guardEl = document.getElementById("guard-toggle");
+function paintGuard(on) {
+  guardEl.setAttribute("aria-pressed", on ? "true" : "false");
+}
+async function fetchGuardStatus() {
+  try {
+    const r = await fetch("/guard/status");
+    if (r.ok) paintGuard(((await r.json()) || {}).enabled);
+  } catch { /* server may be older — leave button off */ }
+}
+guardEl.addEventListener("click", async () => {
+  const next = guardEl.getAttribute("aria-pressed") !== "true";
+  // Optimistic paint so the click feels snappy; revert if the server
+  // disagrees (e.g. ollama unreachable when trying to enable).
+  paintGuard(next);
+  try {
+    const r = await fetch("/guard/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    });
+    const data = await r.json();
+    paintGuard(!!data.enabled);
+  } catch (err) {
+    paintGuard(!next);
+    console.warn("[guard] toggle failed", err);
+  }
+});
+fetchGuardStatus();
 
 // ---------- composer ----------
 export function autosize() {
@@ -249,6 +284,106 @@ const selSegmenter = document.getElementById("select-segmenter");
 const selInpaint = document.getElementById("select-inpaint");
 const selTxt2img = document.getElementById("select-txt2img");
 
+const allModelSelects = [selEmma, selScan, selDetector, selSegmenter, selInpaint, selTxt2img];
+allModelSelects.forEach((s) => s && enhanceSelect(s));
+
+// ---- option metadata: grouping + capability badges (client-side) ----
+// Derived from the name/family/size the /models endpoint already returns,
+// so no extra backend round-trips. Keeps the dropdown organized by family
+// with backend + capability + "heavy" flags surfaced as chips.
+const UNCENSORED_RE = /uncensored|abliterated|heretic|uncen\b/i;
+const HEAVY_GB = 14; // models at/above this lock up smaller Macs
+
+function backendOf(name) {
+  if (name.startsWith("mlx:")) return "MLX";
+  if (name.startsWith("llama:")) return "llama-srv";
+  if (name.startsWith("talkie:")) return "talkie";
+  if (name.startsWith("hf.co/")) return "Ollama·HF";
+  return "Ollama";
+}
+
+// The model NAME is authoritative for family. The /models `family` field
+// can't be trusted: the MLX backend reports "gemma4-mlx" for every MLX
+// model, Qwen included. So classify by name tokens, family only as last
+// resort.
+function familyOf(name, family) {
+  const n = name.toLowerCase();
+  if (n.includes("guard")) return "guard";
+  if (n.includes("qwen")) return "qwen";
+  if (n.includes("gemma")) return "gemma";
+  if (n.includes("llama")) return "llama";
+  const f = (family || "").toLowerCase();
+  if (f.includes("qwen")) return "qwen";
+  if (f.includes("gemma")) return "gemma";
+  if (f.includes("llama")) return "llama";
+  return "other";
+}
+
+const FAMILY_GROUP = {
+  gemma: { key: "Gemma 4", rank: 1 },
+  qwen: { key: "Qwen", rank: 2 },
+  llama: { key: "Llama", rank: 3 },
+  other: { key: "Other", rank: 4 },
+  guard: { key: "Safety / Guard", rank: 5 },
+};
+
+function familyGroup(name, family) {
+  return FAMILY_GROUP[familyOf(name, family)] || FAMILY_GROUP.other;
+}
+
+// Capability badges. Prefer the model's REAL Ollama capabilities (sent by
+// /models); only fall back to name-based guessing for backends with no
+// capability metadata (MLX / llama-server / talkie).
+function capBadges(m) {
+  const caps = m.capabilities;
+  if (Array.isArray(caps)) {
+    const out = [];
+    if (caps.includes("vision")) out.push("VISION");
+    if (caps.includes("audio")) out.push("AUDIO");
+    if (caps.includes("tools")) out.push("TOOLS");
+    if (caps.includes("thinking")) out.push("THINK");
+    return out;
+  }
+  // No server caps → MLX/llama-server/talkie. The app drops tool-calling
+  // for these backends, so never claim TOOLS. Badge vision for families
+  // that are multimodal (Gemma, *-VL).
+  const n = m.name.toLowerCase();
+  const out = [];
+  if (n.includes("gemma") || n.includes("-vl") || n.includes("vision")) out.push("VISION");
+  return out;
+}
+
+function shortName(name) {
+  if (name.startsWith("mlx:")) return name.slice(4);
+  if (name.startsWith("hf.co/")) {
+    const parts = name.slice(6).split("/"); // user/repo:tag
+    return parts[parts.length - 1] || name;
+  }
+  return name;
+}
+
+function ollamaMeta(m) {
+  const name = m.name;
+  const grp = familyGroup(name, m.family);
+  const backend = backendOf(name);
+  const uncensored = UNCENSORED_RE.test(name);
+  const heavy = (m.size_gb || 0) >= HEAVY_GB;
+  const badges = [];
+  if (uncensored) badges.push("UNCENSORED");
+  badges.push(...capBadges(m));
+  badges.push(backend);
+  if (heavy) badges.push("⚠ HEAVY");
+  const params = m.parameter_size || "?";
+  const size = m.size_gb != null ? `${m.size_gb} GB` : "";
+  return {
+    group: uncensored ? `${grp.key} · uncensored` : grp.key,
+    groupRank: grp.rank * 10 + (uncensored ? 1 : 0),
+    title: shortName(name),
+    sub: [backend, params, size].filter(Boolean).join(" · "),
+    badges: badges.join(","),
+  };
+}
+
 function fillOllamaSelect(sel, models, current) {
   sel.innerHTML = "";
   if (!models.length) {
@@ -256,17 +391,27 @@ function fillOllamaSelect(sel, models, current) {
     o.textContent = "(none installed)";
     o.disabled = true;
     sel.appendChild(o);
+    sel._cs && sel._cs.refresh();
     return;
   }
-  for (const m of models) {
+  // Sort by group rank, then size ascending (smallest/safest first, the
+  // heavy 26B variants sink to the bottom of their group).
+  const decorated = models
+    .map((m) => ({ m, meta: ollamaMeta(m) }))
+    .sort((a, b) => a.meta.groupRank - b.meta.groupRank || (a.m.size_gb || 0) - (b.m.size_gb || 0));
+  for (const { m, meta } of decorated) {
     const o = document.createElement("option");
     o.value = m.name;
-    const params = m.parameter_size || "?";
-    const sz = m.size_gb != null ? `${m.size_gb}G` : "";
-    o.textContent = `${m.name} · ${params} · ${sz}`;
+    o.textContent = `${m.name} · ${m.parameter_size || "?"}`; // native fallback text
+    o.dataset.group = meta.group;
+    o.dataset.title = meta.title;
+    o.dataset.sub = meta.sub;
+    o.dataset.badges = meta.badges;
+    o.title = m.name;
     if (m.name === current) o.selected = true;
     sel.appendChild(o);
   }
+  sel._cs && sel._cs.refresh();
 }
 
 function fillPresetSelect(sel, presets, current) {
@@ -274,15 +419,20 @@ function fillPresetSelect(sel, presets, current) {
   for (const p of presets) {
     const o = document.createElement("option");
     o.value = p.name;
-    let label = p.label || p.name;
-    if (p.fits === false) {
-      label += " · (too large for this Mac)";
-      o.disabled = true;
-    }
+    const label = p.label || p.name;
     o.textContent = label;
+    o.dataset.group = p.kind || "Presets";
+    o.dataset.title = label;
+    const badges = [];
+    if (p.fits === false) {
+      o.disabled = true;
+      badges.push("⚠ TOO LARGE");
+    }
+    o.dataset.badges = badges.join(",");
     if (p.name === current) o.selected = true;
     sel.appendChild(o);
   }
+  sel._cs && sel._cs.refresh();
 }
 
 async function postModelChange(path, name, sel, storageKey) {
@@ -343,6 +493,7 @@ export async function refreshModels() {
     await maybeRestore(STORAGE_KEYS.segmenter, d.segmenter.current, d.segmenter.presets, "/models/segmenter", selSegmenter);
     if (d.inpaint) await maybeRestore(STORAGE_KEYS.inpaint, d.inpaint.current, d.inpaint.presets, "/models/inpaint", selInpaint);
     if (d.txt2img) await maybeRestore(STORAGE_KEYS.txt2img, d.txt2img.current, d.txt2img.presets, "/models/txt2img", selTxt2img);
+    allModelSelects.forEach((s) => s && s._cs && s._cs.refresh());
   } catch { /* ignore */ }
 }
 

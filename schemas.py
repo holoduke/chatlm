@@ -254,6 +254,25 @@ class ToolExecResponse(BaseModel):
     truncated: bool
 
 
+class WebSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+    max_results: int = Field(5, ge=1, le=20)
+    region: str = Field("wt-wt", max_length=8)  # ddgs region code; wt-wt = no region
+    safesearch: str = Field("moderate", pattern=r"^(off|moderate|strict)$")
+
+
+class WebSearchHit(BaseModel):
+    title: str
+    href: str
+    body: str
+
+
+class WebSearchResponse(BaseModel):
+    query: str
+    results: list[WebSearchHit]
+    duration_ms: int
+
+
 class ChatResponse(BaseModel):
     model: str
     message: Message
