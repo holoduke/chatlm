@@ -1634,6 +1634,123 @@ body.track-armed .track-props { display: flex; }
   cursor: wait;
 }
 
+/* ---------- custom model combobox (customSelect.js) ---------- */
+.cs-native-hidden { display: none !important; }
+
+.cs { position: relative; display: inline-flex; }
+
+.cs-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  padding: 4px 8px;
+  font-family: "Share Tech Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  outline: none;
+  max-width: 200px;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+.cs-button:hover,
+.cs--open .cs-button { border-color: var(--cyan); box-shadow: 0 0 6px rgba(0, 240, 255, 0.3); }
+.cs-button-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-button--uncensored { border-color: rgba(255, 43, 214, 0.55); color: var(--magenta); }
+.cs-caret { color: var(--text-dim); font-size: 9px; flex: 0 0 auto; }
+.cs--open .cs-caret { color: var(--cyan); }
+
+.cs-panel {
+  position: fixed; /* escapes the top-bar's overflow clipping; placed via JS */
+  z-index: 1000;
+  min-width: 300px;
+  max-width: 400px;
+  max-height: 62vh;
+  overflow-y: auto;
+  background: var(--bg-grid);
+  border: 1px solid var(--cyan);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.18), 0 8px 30px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+}
+
+.cs-search { position: sticky; top: 0; background: var(--bg-grid); padding: 2px 2px 6px; z-index: 2; }
+.cs-search input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  padding: 5px 8px;
+  font-family: "Share Tech Mono", ui-monospace, monospace;
+  font-size: 11px;
+  outline: none;
+}
+.cs-search input:focus { border-color: var(--cyan); box-shadow: 0 0 6px rgba(0, 240, 255, 0.25); }
+
+.cs-group {
+  font-family: "Orbitron", sans-serif;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--magenta);
+  text-shadow: 0 0 4px rgba(255, 43, 214, 0.3);
+  padding: 8px 8px 3px;
+  border-top: 1px solid var(--panel-edge);
+  margin-top: 2px;
+}
+.cs-group:first-child { border-top: none; margin-top: 0; }
+
+.cs-option {
+  padding: 6px 8px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.cs-option:hover,
+.cs-option--active { background: rgba(0, 240, 255, 0.08); }
+.cs-option--selected { border-left-color: var(--cyan); background: rgba(0, 240, 255, 0.06); }
+.cs-option--disabled { opacity: 0.4; cursor: not-allowed; }
+
+.cs-option-main { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cs-option-title {
+  font-family: "Share Tech Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-option--selected .cs-option-title { color: var(--cyan); }
+.cs-option-badges { display: inline-flex; gap: 3px; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+.cs-option-sub {
+  font-family: "Share Tech Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.cs-badge {
+  font-family: "Orbitron", sans-serif;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  padding: 1px 4px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.cs-badge--uncensored { color: var(--magenta); }
+.cs-badge--tools { color: var(--green); }
+.cs-badge--vision { color: var(--cyan); }
+.cs-badge--audio { color: var(--green); }
+.cs-badge--think { color: var(--amber); }
+.cs-badge--heavy { color: var(--danger); border-color: var(--danger); }
+.cs-badge--backend { color: var(--text-dim); }
+.cs-badge--default { color: var(--text-dim); }
+
 
 .prompt-sigil {
   align-self: center;

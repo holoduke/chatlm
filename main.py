@@ -783,6 +783,26 @@ async def list_models_endpoint() -> dict:
             "quantization": details.get("quantization_level"),
             "family": details.get("family"),
         })
+    # Attach each model's real Ollama capabilities (vision/tools/thinking)
+    # so the UI can badge accurately instead of guessing from the name.
+    # MLX/llama-server/talkie models have no /api/show — left None for the
+    # frontend to derive. Probes run concurrently and are cached in the
+    # client, so only the first /models call pays the cost.
+    async def _caps_for(name: str) -> list[str] | None:
+        if (
+            mlx_client.is_mlx_name(name)
+            or llama_server_client.is_llama_name(name)
+            or talkie_client.is_talkie_name(name)
+        ):
+            return None
+        try:
+            return sorted(await client.capabilities(name))
+        except Exception:
+            return None
+
+    caps_results = await asyncio.gather(*(_caps_for(a["name"]) for a in available))
+    for a, caps in zip(available, caps_results):
+        a["capabilities"] = caps
     available.sort(key=lambda x: (x.get("family") or "", x.get("size_gb", 0)))
     detectors = [{"name": k, "label": v["label"], "kind": v["kind"]} for k, v in detect_module.DETECTOR_PRESETS.items()]
     segmenters = [{"name": k, "label": v["label"], "kind": v["kind"]} for k, v in detect_module.SEGMENTER_PRESETS.items()]
